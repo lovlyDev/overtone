@@ -9,7 +9,9 @@
   "private": true,
   "overtone": {
     "repo": "lovlyDev/overtone",
-    "ymTested": ["5.127.0"]
+    "ymTested": [
+      "5.127.0"
+    ]
   },
   "scripts": {
     "install-mod": "node patcher/cli.js install",
@@ -19,6 +21,7 @@
     "ytdlp": "node patcher/cli.js ytdlp",
     "check": "node tools/check.js",
     "test": "node tools/check.js && node tools/headers.js --check && node tools/test-api.js && node tools/test-fetch.js && node tools/test-soundcloud.js && node tools/test-recovery.js && node tools/test-replace.js",
-    "build": "node installer/build.js"
+    "build": "node installer/build.js",
+    "compat": "node tools/compat.js"
   }
 }
