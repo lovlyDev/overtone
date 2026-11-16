@@ -85,8 +85,10 @@ module.exports = function createRelease({ root, dataDir }) {
       latest: latest && { version: latest.version, date: latest.date, notes: latest.notes, fixesThisYm: tested(latest) },
       updateAvailable,
       health,
-      // Установщик есть только у установленной версии; при разработке обновлять нечем.
-      canUpdate: fs.existsSync(path.join(dataDir, 'Overtone.exe')) && !fs.existsSync(path.join(dataDir, 'dev-path.txt')),
+      // В режиме разработки код грузится из папки проекта — обновлять там нечего, это делает git.
+      // Копия установщика для обновления не нужна: скачанный установщик ставит себя сам.
+      dev: fs.existsSync(path.join(dataDir, 'dev-path.txt')),
+      canUpdate: !fs.existsSync(path.join(dataDir, 'dev-path.txt')),
     };
   }
 

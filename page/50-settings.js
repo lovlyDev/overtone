@@ -145,8 +145,9 @@
         ];
 
     const release = ot.release;
-    const updateNote = el('span', { className: 'ot-note', textContent: release?.updateAvailable ? `Доступна версия ${release.latest.version}` : 'Установлена последняя версия, насколько известно.' });
+    const updateNote = el('span', { className: 'ot-note', textContent: release?.dev ? 'Режим разработки: код грузится из папки проекта, обновляй его через git.' : release?.updateAvailable ? `Доступна версия ${release.latest.version}` : 'Установлена последняя версия, насколько известно.' });
     const updateButton = el('button', { type: 'button', className: `ot-pill${release?.updateAvailable ? ' ot-pill-accent' : ''}`, textContent: release?.updateAvailable ? 'Обновить' : 'Проверить' });
+    updateButton.hidden = Boolean(release?.dev);
     updateButton.addEventListener('click', async () => {
       const bridge = window.overtone.release;
       try {

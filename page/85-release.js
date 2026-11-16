@@ -36,7 +36,8 @@
     close();
     const list = el('div', { className: 'ot-notes ot-scroll' });
     if (info?.updateAvailable) {
-      const button = el('button', { type: 'button', className: 'ot-pill ot-pill-accent', textContent: info.canUpdate ? 'Обновить' : 'Скачать' });
+      const button = el('button', { type: 'button', className: 'ot-pill ot-pill-accent', textContent: info.canUpdate ? 'Обновить' : 'Открыть релиз' });
+      button.hidden = Boolean(info.dev);
       const note = el('p', { className: 'ot-notes-text' });
       button.addEventListener('click', async () => {
         if (!info.canUpdate) return bridge.openPage();
