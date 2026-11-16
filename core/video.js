@@ -15,6 +15,39 @@ const MIME = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matr
 const YT_TIMEOUT_MS = 150_000;
 /** Сколько не повторять поиск для трека, у которого видео не нашлось. */
 const MISS_TTL_MS = 3 * 24 * 3600 * 1000;
+/** Сколько не перепроверять трек, у которого клипа не нашлось при разведке. */
+const PROBE_MISS_TTL_MS = 14 * 24 * 3600 * 1000;
+/** Пауза между поисками на YouTube при разведке — чтобы не нагружать ни компьютер, ни YouTube. */
+const PROBE_GAP_MS = 1500;
+
+/** Сравнение названий: нижний регистр, без скобок и знаков. */
+const plain = (text) =>
+  String(text || '')
+    .toLowerCase()
+    .replace(/ё/g, 'е')
+    .replace(/[([{][^)\]}]*[)\]}]/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+
+/**
+ * Насколько результат поиска похож на настоящий клип этого трека. 0 — не он.
+ * Название трека обязано быть в заголовке, длительность — рядом с треком;
+ * «official video», «клип» и исполнитель добавляют баллы, тексты, ремиксы и замедления — отнимают.
+ */
+function clipScore(item, track) {
+  const title = plain(item.title);
+  const want = plain(track.title);
+  if (!want || !title.includes(want)) return 0;
+  const seconds = (track.durationMs || 0) / 1000;
+  if (seconds && item.duration && (item.duration < seconds - 20 || item.duration > seconds + 150)) return 0;
+  let score = 1;
+  const artist = plain(String(track.artist || '').split(',')[0]);
+  if (artist && (title.includes(artist) || plain(item.channel || item.uploader).includes(artist))) score += 2;
+  if (/official (music )?video|music video|клип|\bmv\b|видеоклип/i.test(item.title)) score += 3;
+  if (/lyric|текст|караоке|karaoke|slowed|sped|reverb|nightcore|8d|cover|кавер|remix|instrumental|minus|минус|live|концерт/i.test(item.title)) score -= 3;
+  return score;
+}
+
 /** Пауза после сетевой ошибки YouTube. Смена настроек её сбрасывает. */
 const RETRY_MS = 2 * 60 * 1000;
 
@@ -50,23 +83,27 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
   async function fromYandex(track, key) {
     // Номера с 70… на 13 знаков — это треки SoundCloud (см. core/api.js), у Яндекса про них спрашивать нечего.
     if (!/^\d+$/.test(String(track.id || '')) || /^70\d{11}$/.test(String(track.id))) return null;
-    const response = await net.fetch(`https://api.music.yandex.net/tracks/${track.id}`);
-    if (!response.ok) return null;
-    const uri = (await response.json())?.result?.[0]?.backgroundVideoUri;
+    let uri = index[key]?.ymUri;
+    if (!uri) {
+      const response = await net.fetch(`https://api.music.yandex.net/tracks/${track.id}`);
+      if (!response.ok) return null;
+      uri = (await response.json())?.result?.[0]?.backgroundVideoUri;
+    }
     if (!uri) return null;
     const file = path.join(cacheDir, `${key}.ym.mp4`);
     await download(uri, file);
     return { file, kind: 'ym' };
   }
 
-  function fromYoutube(track, key) {
+  function fromYoutube(track, key, direct = false) {
     const exe = ytdlpPath();
     if (!exe || !track.title) return Promise.resolve(null);
     const config = getConfig();
     const height = Number(config.videoHeight) || 1080;
     const seconds = Math.round((track.durationMs || 0) / 1000);
+    const known = index[key]?.youtube;
     const args = [
-      `ytsearch5:${[track.artist, track.title, 'official video'].filter(Boolean).join(' ')}`,
+      known ? `https://www.youtube.com/watch?v=${known}` : `ytsearch5:${[track.artist, track.title, 'official video'].filter(Boolean).join(' ')}`,
       '--no-playlist',
       '--max-downloads', '1',
       '-f', `bv*[height<=${height}][vcodec^=avc1]/bv*[height<=${height}]/b[height<=${height}]`,
@@ -75,8 +112,8 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       '--print', 'after_move:filepath',
     ];
     // Отсекаем часовые миксы и короткие тизеры; клип обычно чуть длиннее трека.
-    if (seconds) args.push('--match-filter', `duration>=${Math.max(seconds - 20, 30)} & duration<=${seconds + 150}`);
-    if (config.proxy) args.push('--proxy', config.proxy);
+    if (seconds && !known) args.push('--match-filter', `duration>=${Math.max(seconds - 20, 30)} & duration<=${seconds + 150}`);
+    if (config.proxy && !direct) args.push('--proxy', config.proxy);
     return new Promise((resolve, reject) => {
       const child = spawn(exe, args, { windowsHide: true });
       let out = '';
@@ -127,7 +164,13 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     if (config.videoYm) found = await fromYandex(track, key).catch(() => null);
     if (!found && config.videoYoutube) {
       try {
-        found = await fromYoutube(track, key);
+        try {
+          found = await fromYoutube(track, key);
+        } catch (error) {
+          // Прокси подвёл — пробуем напрямую: YouTube бывает доступен и без него.
+          if (!getConfig().proxy) throw error;
+          found = await fromYoutube(track, key, true);
+        }
         lastError = '';
       } catch (error) {
         // Сбой сети: в индекс не пишем, просто не дёргаем YouTube пару минут.
@@ -136,11 +179,102 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
         return null;
       }
     }
-    index[key] = found ? { ...found, at: Date.now() } : { miss: true, at: Date.now() };
+    index[key] = found ? { ...index[key], ...found, at: Date.now() } : { ...index[key], miss: true, at: Date.now() };
     trim();
     saveIndex();
     if (found) onChange();
     return found;
+  }
+
+  // ---------- разведка: есть ли у трека клип ----------
+  const probeQueue = [];
+  const probing = new Set();
+  let probeBusy = false;
+
+  /** Что известно о клипе без загрузки: 'ym', 'yt', 'none' или undefined — ещё не проверяли. */
+  function probeState(key) {
+    const item = index[key];
+    if (!item) return undefined;
+    if (item.file && fs.existsSync(item.file)) return item.kind;
+    if (item.rejected) return 'none';
+    if (item.ymUri) return 'ym';
+    if (item.youtube) return 'yt';
+    if (item.probed === 'none' && Date.now() - item.probedAt < PROBE_MISS_TTL_MS) return 'none';
+    return undefined;
+  }
+
+  /** Родное видео Яндекса — одним запросом на пачку треков. */
+  async function probeYandex(tracks) {
+    const ids = tracks.filter((track) => /^\d+$/.test(String(track.id)) && !/^70\d{11}$/.test(String(track.id))).map((track) => track.id);
+    for (let at = 0; at < ids.length; at += 50) {
+      try {
+        const response = await net.fetch(`https://api.music.yandex.net/tracks?track-ids=${ids.slice(at, at + 50).join(',')}`);
+        if (!response.ok) continue;
+        for (const card of (await response.json())?.result || []) {
+          const key = keyOf({ id: card.id });
+          if (card.backgroundVideoUri) index[key] = { ...index[key], ymUri: card.backgroundVideoUri, probedAt: Date.now() };
+        }
+      } catch {}
+    }
+  }
+
+  /** Ищем на YouTube только название ролика — без скачивания, пара секунд на трек. */
+  function probeYoutube(track) {
+    const exe = ytdlpPath();
+    if (!exe) return Promise.resolve(undefined);
+    const args = [`ytsearch6:${[track.artist, track.title].filter(Boolean).join(' ')}`, '--flat-playlist', '-j', '--no-warnings'];
+    if (getConfig().proxy) args.push('--proxy', getConfig().proxy);
+    return new Promise((resolve) => {
+      const child = spawn(exe, args, { windowsHide: true });
+      let out = '';
+      const timer = setTimeout(() => child.kill(), 40_000);
+      child.stdout.on('data', (chunk) => (out += chunk));
+      child.on('error', () => resolve(undefined));
+      child.on('close', (code) => {
+        clearTimeout(timer);
+        const items = out.split(/\r?\n/).filter(Boolean).map((line) => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+        // Сеть упала — «неизвестно», а не «нет клипа».
+        if (!items.length && code !== 0) return resolve(undefined);
+        const best = items.map((item) => ({ item, score: clipScore(item, track) })).filter((entry) => entry.score >= 3).sort((a, b) => b.score - a.score)[0];
+        resolve(best ? best.item.id : null);
+      });
+    });
+  }
+
+  async function pumpProbe() {
+    if (probeBusy) return;
+    probeBusy = true;
+    try {
+      while (probeQueue.length) {
+        const batch = probeQueue.splice(0, 50);
+        if (getConfig().videoYm) await probeYandex(batch);
+        let changed = true;
+        for (const track of batch) {
+          const key = keyOf(track);
+          probing.delete(key);
+          if (probeState(key) || !getConfig().videoYoutube) continue;
+          const video = await probeYoutube(track);
+          if (video === undefined) continue;
+          index[key] = video ? { ...index[key], youtube: video, probedAt: Date.now() } : { ...index[key], probed: 'none', probedAt: Date.now() };
+          changed = true;
+          saveIndex();
+          onChange();
+          await new Promise((resolve) => setTimeout(resolve, PROBE_GAP_MS));
+        }
+        if (changed) {
+          saveIndex();
+          onChange();
+        }
+      }
+    } finally {
+      probeBusy = false;
+    }
   }
 
   function payload(item) {
@@ -148,7 +282,7 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
   }
 
   return {
-    async get(track) {
+    async get(track, { force = false } = {}) {
       if (!track || !getConfig().video) return null;
       const key = keyOf(track);
       const known = index[key];
@@ -157,8 +291,10 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
         known.at = Date.now();
         return payload(known);
       }
-      if (known?.miss && Date.now() - known.at < MISS_TTL_MS) return null;
-      if (Date.now() < retryAfter) return null;
+      // Старое «не нашлось» не в счёт, если разведка с тех пор нашла клип.
+      if (known?.miss && !known.youtube && !known.ymUri && Date.now() - known.at < MISS_TTL_MS) return null;
+      // Кнопка «Скачать клип» — явная просьба: паузу после сетевой ошибки не ждём.
+      if (Date.now() < retryAfter && !force) return null;
       if (!pending.has(key)) pending.set(key, find(track, key).finally(() => pending.delete(key)));
       const found = await pending.get(key);
       return found ? payload(found) : null;
@@ -171,13 +307,32 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       saveIndex();
       onChange();
     },
-    /** Треки Яндекс Музыки с клипом в кеше: номер -> откуда клип ('ym' или 'yt'). */
+    /** Номер трека → { kind: 'ym' | 'yt', saved: скачан ли }. Берётся с диска мгновенно. */
     known() {
-      return Object.fromEntries(
-        Object.entries(index)
-          .filter(([key, item]) => key.startsWith('t') && item.file && fs.existsSync(item.file))
-          .map(([key, item]) => [key.slice(1), item.kind]),
-      );
+      const out = {};
+      for (const [key, item] of Object.entries(index)) {
+        if (!key.startsWith('t')) continue;
+        const state = probeState(key);
+        if (state === 'ym' || state === 'yt') out[key.slice(1)] = { kind: state, saved: Boolean(item.file && fs.existsSync(item.file)) };
+      }
+      return out;
+    },
+    /** Карточки, которые приложение показало: тихо выясняем, есть ли у них клипы. */
+    probe(cards) {
+      if (!getConfig().video) return;
+      for (const card of cards || []) {
+        if (!card?.id || !card.title) continue;
+        const key = keyOf({ id: card.id });
+        if (probeState(key) || probing.has(key)) continue;
+        probing.add(key);
+        probeQueue.push({ id: String(card.id), title: card.title, artist: (card.artists || []).map((artist) => artist.name).join(', '), durationMs: card.durationMs || 0 });
+      }
+      pumpProbe();
+    },
+    /** Кнопка «Скачать клип» в плеере: качает сразу, без ожидания полноэкранного плеера. */
+    async save(track) {
+      const found = await this.get(track, { force: true });
+      return found ? { ok: true } : { ok: false, error: lastError || 'Клип не нашёлся' };
     },
     stats() {
       const files = Object.values(index).filter((item) => item.file && fs.existsSync(item.file));

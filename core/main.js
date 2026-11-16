@@ -17,6 +17,7 @@ const createReplace = require('./replace');
 const createRelease = require('./release');
 const createDiscord = require('./discord');
 const createWave = require('./wave');
+const createLyrics = require('./lyrics');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -62,7 +63,9 @@ module.exports = function start({ dataDir, root }) {
   wave = createWave({ dataDir, soundcloud, getConfig: () => config });
   const media = createMedia({ soundcloud });
   const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
-  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave });
+  const lyrics = createLyrics({ dataDir });
+  const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast?.('overtone:video-known', video.known()) });
+  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave, lyrics, video });
   const windows = new Set();
   const broadcast = (channel, data) => {
     for (const win of windows) if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -77,7 +80,6 @@ module.exports = function start({ dataDir, root }) {
   const discord = createDiscord({ getConfig: () => config, defaultClientId: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).overtone?.discordClientId });
   const system = createSystem({ getConfig: () => config, windows, broadcast });
   const lastfm = createLastfm({ getConfig: () => config, setConfig: saveConfig });
-  const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast('overtone:video-known', video.known()) });
 
   const pageDir = path.join(root, 'page');
   const readPage = () => {
@@ -183,6 +185,11 @@ module.exports = function start({ dataDir, root }) {
   ipcMain.handle('overtone:api', (_event, request) => api.resolve(request));
   ipcMain.handle('overtone:video-stats', () => video.stats());
   ipcMain.handle('overtone:video-known', () => video.known());
+  ipcMain.handle('overtone:video-save', (_event, track) => video.save(track));
+  ipcMain.handle('overtone:sc-open', (_event, id) => {
+    const track = soundcloud.track(String(Number(id) - 7_000_000_000_000));
+    if (track?.url && /^https:\/\/(www\.|m\.)?soundcloud\.com\//.test(track.url)) require('electron').shell.openExternal(track.url);
+  });
   ipcMain.handle('overtone:video-clear', () => video.clear());
 
   app.whenReady().then(() => {

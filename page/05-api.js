@@ -73,9 +73,10 @@
         ot.emit('sc-unavailable', { id: String(Number(info.trackId) - 7000000000000), message: 'Трек недоступен в SoundCloud', at: Date.now() });
       }
     }
-    return new Response(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body), {
+    const text = typeof reply.body === 'string';
+    return new Response(text ? reply.body : JSON.stringify(reply.body), {
       status: reply.status,
-      headers: { 'content-type': 'application/json; charset=utf-8' },
+      headers: { 'content-type': text && url.pathname.startsWith('/overtone/lyrics/') ? 'text/plain; charset=utf-8' : 'application/json; charset=utf-8' },
     });
   };
 })();

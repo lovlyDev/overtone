@@ -47,6 +47,62 @@
     key = '';
   }
 
+  /**
+   * У многих клипов чёрные полосы зашиты в само видео: клип 4:3 в кадре 16:9, вертикальное видео,
+   * статичная картинка посередине. object-fit: cover растягивает кадр вместе с полосами, поэтому
+   * находим, где начинается настоящее изображение, и увеличиваем видео так, чтобы полосы ушли за край окна.
+   */
+  const probe = document.createElement('canvas');
+  function fitBars(video) {
+    if (!video.videoWidth || video.paused || video.readyState < 2) return;
+    const width = 96;
+    const height = Math.round((96 * video.videoHeight) / video.videoWidth) || 54;
+    probe.width = width;
+    probe.height = height;
+    const context = probe.getContext('2d', { willReadFrequently: true });
+    try {
+      context.drawImage(video, 0, 0, width, height);
+    } catch {
+      return;
+    }
+    const { data } = context.getImageData(0, 0, width, height);
+    const dark = (x, y) => {
+      const at = (y * width + x) * 4;
+      return data[at] + data[at + 1] + data[at + 2] < 54;
+    };
+    const rowDark = (y) => {
+      let count = 0;
+      for (let x = 0; x < width; x += 1) count += dark(x, y);
+      return count / width > 0.96;
+    };
+    const columnDark = (x) => {
+      let count = 0;
+      for (let y = 0; y < height; y += 1) count += dark(x, y);
+      return count / height > 0.96;
+    };
+    let top = 0;
+    while (top < height / 2 && rowDark(top)) top += 1;
+    let bottom = height - 1;
+    while (bottom > height / 2 && rowDark(bottom)) bottom -= 1;
+    let left = 0;
+    while (left < width / 2 && columnDark(left)) left += 1;
+    let right = width - 1;
+    while (right > width / 2 && columnDark(right)) right -= 1;
+    // Весь кадр тёмный (затемнение, ночная сцена) — ничего не трогаем.
+    if (bottom - top < height * 0.3 || right - left < width * 0.3) return;
+    const scaleX = width / (right - left + 1);
+    const scaleY = height / (bottom - top + 1);
+    const scale = Math.min(Math.max(scaleX, scaleY), 2.5);
+    if (scale < 1.03) {
+      video.style.removeProperty('transform');
+      return;
+    }
+    // Центр настоящей картинки — в центр окна.
+    const shiftX = ((width / 2 - (left + right) / 2) / width) * 100 * scale;
+    const shiftY = ((height / 2 - (top + bottom) / 2) / height) * 100 * scale;
+    video.style.transform = `translate(${shiftX.toFixed(2)}%, ${shiftY.toFixed(2)}%) scale(${scale.toFixed(3)})`;
+  }
+
   function mount(modal) {
     if (layer?.isConnected && layer.parentNode === modal) return;
     // Плеер закрыли и открыли заново: слой новый, видео нужно запросить ещё раз.
@@ -55,6 +111,8 @@
     key = '';
     player =ot.el('video', { muted: true, playsInline: true, loop: true, preload: 'auto' });
     player.addEventListener('canplay', () => (ready = true));
+    // Полосы ищем на нескольких кадрах: первый кадр часто чёрный целиком.
+    player.addEventListener('playing', () => [600, 2500, 6000].forEach((ms) => setTimeout(() => fitBars(player), ms)));
     layer = ot.el('div', { id: 'ot-video' }, [player]);
     modal.prepend(layer);
   }

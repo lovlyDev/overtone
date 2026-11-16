@@ -25,7 +25,7 @@ const toSoundcloud = (id) => String(Number(id) - BASE);
 const isSynthetic = (id) => /^70\d{11}$/.test(String(id));
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, '+00:00');
 
-module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave }) {
+module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave, lyrics, video }) {
   const likedYandex = new Set();
   const log = (...parts) => {
     if (!getConfig().debug) return;
@@ -37,6 +37,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
 
   function richTrack(track) {
     const id = toSynthetic(track.id);
+    const text = lyrics?.info(track.id);
     const uri = coverUri(track);
     const artist = {
       id: Number(id), name: track.artist || 'SoundCloud', various: false, composer: false, available: true,
@@ -54,8 +55,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         available: true, availableForPremiumUsers: true, availableForOptions: ['bookmate'], availableForMobile: true,
         availablePartially: false, bests: [], disclaimers: [], trackPosition: { volume: 1, index: 1 },
       }],
-      coverUri: uri, ogImage: uri, lyricsAvailable: false, type: 'music', rememberPosition: false,
-      trackSharingFlag: 'COVER_ONLY', lyricsInfo: { hasAvailableSyncLyrics: false, hasAvailableTextLyrics: false }, trackSource: 'OWN',
+      coverUri: uri, ogImage: uri, lyricsAvailable: Boolean(text?.plain), type: 'music', rememberPosition: false,
+      trackSharingFlag: 'COVER_ONLY', lyricsInfo: { hasAvailableSyncLyrics: Boolean(text?.synced), hasAvailableTextLyrics: Boolean(text?.plain) }, trackSource: 'OWN',
     };
   }
   const richById = (id) => {
@@ -144,6 +145,23 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         log('playlist', playlist?.[1] || owned[1], entry ? 'ok' : 'missing');
         return entry ? fulfill(params, searchPlaylist(entry)) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
       }
+      const lyricsInfo = /^\/tracks\/(70\d{11})\/lyrics$/.exec(route);
+      if (lyricsInfo) {
+        const format = url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC';
+        if (!lyrics?.text(toSoundcloud(lyricsInfo[1]), format)) return fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+        return fulfill(params, {
+          downloadUrl: `${API}overtone/lyrics/${lyricsInfo[1]}?format=${format}`,
+          lyricId: Number(toSoundcloud(lyricsInfo[1])),
+          externalLyricId: toSoundcloud(lyricsInfo[1]),
+          writers: [],
+          major: { id: 0, name: 'LRCLIB', prettyName: 'LRCLIB' },
+        });
+      }
+      const lyricsText = /^\/overtone\/lyrics\/(70\d{11})$/.exec(route);
+      if (lyricsText) {
+        const text = lyrics?.text(toSoundcloud(lyricsText[1]), url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC');
+        return text ? fulfill(params, text) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+      }
       const like = /\/likes\/tracks\/(add|[^/]+\/remove)/.exec(route);
       if (like) {
         const id = (like[1] === 'add' ? url.searchParams.get('track-id') || '' : like[1]).split(/[:/]/)[0];
@@ -159,7 +177,10 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
         if (ids.length && ids.every(isSynthetic)) {
           await soundcloud.ensure?.(ids.map(toSoundcloud));
-          return fulfill(params, ids.map(richById).filter(Boolean));
+          await lyrics?.ensure(ids.map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean));
+          const cards = ids.map(richById).filter(Boolean);
+          video?.probe(cards);
+          return fulfill(params, cards);
         }
         return false;
       }
@@ -180,6 +201,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       const data = request.response;
       if (url.pathname === '/collection/sync') for (const item of data.values?.likedTracks?.values?.liked || []) if (!isSynthetic(item.trackId)) likedYandex.add(String(item.trackId));
       if (url.pathname === '/tracks' && Array.isArray(data) && likedYandex.size) wave?.learnFromYandex(data, likedYandex);
+      if (url.pathname === '/tracks' && Array.isArray(data)) video?.probe(data);
       if (url.pathname === '/collection/sync' && data.values?.likedTracks?.values) {
         const tracks = data.values.likedTracks;
         const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));

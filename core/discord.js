@@ -33,7 +33,9 @@ module.exports = function createDiscord({ getConfig, defaultClientId }) {
   let pending = null;
   let pendingTimer = null;
   let nonce = 0;
-  let anchor = null; // { key, position, at } — с какого места считали время в последнем статусе
+  let anchor = null;
+  // Ссылки в названии и обложке — новая возможность Discord; старые версии отвечают ошибкой.
+  let links = true; // { key, position, at } — с какого места считали время в последнем статусе
 
   const clientId = () => String(getConfig().discordClientId || defaultClientId || '').trim();
   const enabled = () => Boolean(getConfig().discord) && /^\d{17,20}$/.test(clientId());
@@ -59,6 +61,10 @@ module.exports = function createDiscord({ getConfig, defaultClientId }) {
           message = JSON.parse(buffer.subarray(8, 8 + length).toString('utf8'));
         } catch {}
         buffer = buffer.subarray(8 + length);
+        if (message.evt === 'ERROR' && message.cmd === 'SET_ACTIVITY' && links) {
+          links = false;
+          if (pending) send(strip(pending));
+        }
         if (message.evt === 'READY') {
           ready = true;
           connecting = false;
@@ -82,8 +88,23 @@ module.exports = function createDiscord({ getConfig, defaultClientId }) {
     client.once('close', fail);
   }
 
+  function strip(activity) {
+    if (!activity) return activity;
+    const { details_url: a, state_url: b, ...rest } = activity;
+    void a;
+    void b;
+    if (rest.assets) {
+      const { large_url: c, small_url: d, ...assets } = rest.assets;
+      void c;
+      void d;
+      rest.assets = assets;
+    }
+    return rest;
+  }
+
   function send(activity) {
     if (!ready || !socket) return;
+    if (!links) activity = strip(activity);
     socket.write(frame(OP.FRAME, { cmd: 'SET_ACTIVITY', args: { pid: process.pid, activity }, nonce: String((nonce += 1)) }));
     lastAt = Date.now();
   }
@@ -121,6 +142,14 @@ module.exports = function createDiscord({ getConfig, defaultClientId }) {
       ].filter(Boolean),
       instance: false,
     };
+    // Клик по названию, исполнителю или обложке открывает трек: на SoundCloud или в Яндекс Музыке.
+    const page = soundcloud ? track.url : /^\d+$/.test(String(track.id || '')) ? `https://music.yandex.ru/track/${track.id}` : '';
+    if (page) {
+      activity.details_url = page;
+      activity.state_url = page;
+      activity.assets.large_url = page;
+      activity.assets.small_url = SITE;
+    }
     // Полоска времени у Discord: начало и конец трека. На паузе её нет.
     if (playing && track.durationMs && typeof position === 'number') {
       const start = now - Math.round(position * 1000);

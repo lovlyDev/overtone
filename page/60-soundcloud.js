@@ -127,7 +127,17 @@
       const own = /trackId=70\d{11}(?:&|$)/.test(link.getAttribute('href'));
       const badge = link.querySelector('.ot-sc-badge');
       if (!own) badge?.remove();
-      else if (!badge) link.append(el('span', { className: 'ot-sc-badge', textContent: 'SC', title: 'SoundCloud', ariaLabel: 'SoundCloud' }));
+      else if (!badge) {
+        // Метка SC — ссылка: открывает трек на SoundCloud в браузере.
+        const node = el('span', { className: 'ot-sc-badge', textContent: 'SC', title: 'Открыть на SoundCloud', ariaLabel: 'Открыть на SoundCloud', role: 'link' });
+        const id = /trackId=(70d{11})/.exec(link.getAttribute('href'))[1];
+        node.addEventListener('click', (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          window.overtone.openOnSoundcloud(id);
+        });
+        link.append(node);
+      }
     }
     const list = document.querySelector('[class*="NavbarDesktop_navi"]');
     if (!list || nav?.isConnected) return;

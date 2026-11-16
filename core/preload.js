@@ -99,6 +99,8 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
       logout: () => ipcRenderer.invoke('overtone:lastfm-logout'),
     },
     knownVideos: () => ipcRenderer.invoke('overtone:video-known'),
+    saveVideo: (track) => ipcRenderer.invoke('overtone:video-save', track),
+    openOnSoundcloud: (id) => ipcRenderer.invoke('overtone:sc-open', id),
     onKnownVideos: (listener) => {
       ipcRenderer.on('overtone:video-known', (_event, ids) => listener(ids));
     },
