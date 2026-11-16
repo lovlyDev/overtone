@@ -42,8 +42,10 @@
     else lights[source] = value;
     const current = document.documentElement.dataset.otVideo === 'on' && 'video' in lights ? lights.video : lights.live;
     const light = typeof current === 'number' && current > 0.58;
-    if (light) document.documentElement.dataset.otLight = 'true';
-    else delete document.documentElement.dataset.otLight;
+    // Пишем в <html> только при смене: любая запись туда пересчитывает стили всей страницы.
+    const was = document.documentElement.dataset.otLight === 'true';
+    if (light && !was) document.documentElement.dataset.otLight = 'true';
+    else if (!light && was) delete document.documentElement.dataset.otLight;
   };
   // Модули ниже подписываются на 'tick'; своих таймеров не заводят.
   setInterval(() => ot.emit('tick', performance.now()), 500);

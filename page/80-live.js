@@ -30,6 +30,9 @@
   let coverKey = '';
   let lastPaint = 0;
   let lastLight = 0;
+  let poster = null;
+  let lastPulse = '';
+  const POSTER = '[class*="FullscreenPlayerDesktopPoster_root"]';
   const env = { bass: 0, mid: 0, beat: 0, peak: { bass: 0.2, mid: 0.2 }, avgBass: 0, lastBeat: 0 };
 
   function band(spectrum, from, to) {
@@ -69,6 +72,9 @@
   function draw(now) {
     frame = requestAnimationFrame(draw);
     if (!context || document.hidden) return;
+    // 30 кадров в секунду: глазу хватает, а процессору вдвое легче.
+    if (now - lastPaint < 33) return;
+    lastPaint = now;
     const time = now / 1000;
     const spectrum = ot.spectrum?.();
     if (spectrum) {
@@ -81,20 +87,17 @@
         env.lastBeat = now;
       }
     } else {
-      env.bass *= 0.95;
-      env.mid *= 0.95;
+      env.bass *= 0.9;
+      env.mid *= 0.9;
     }
-    env.beat *= 0.92;
+    env.beat *= 0.85;
 
-    // 30 кадров в секунду: глазу хватает, а процессору вдвое легче.
-    if (now - lastPaint < 33) return;
-    lastPaint = now;
     context.globalCompositeOperation = 'source-over';
     context.globalAlpha = 1;
     context.fillStyle = '#0b0b0f';
     context.fillRect(0, 0, WIDTH, HEIGHT);
     // Смена трека: новая обложка проявляется поверх старой за пару секунд.
-    if (current && current.alpha < 1) current.alpha = Math.min(1, current.alpha + 0.012);
+    if (current && current.alpha < 1) current.alpha = Math.min(1, current.alpha + 0.024);
     if (previous && current?.alpha < 1) paintCover(previous, time, 1);
     if (current) paintCover(current, time, current.alpha);
     // Бас и удар — вспышкой поверх, без фильтров.
@@ -108,7 +111,15 @@
       context.globalAlpha = 1;
     }
     // Пульс обложки — только когда она спокойно лежит, не во время перехода к клипу.
-    root.style.setProperty('--ot-pulse', root.dataset.otVideo ? '0' : (env.bass * 0.03 + env.beat * 0.025).toFixed(4));
+    // Пульс пишем прямо в обложку: переменная на <html> заставляла браузер пересчитывать стили
+    // всей страницы 30 раз в секунду — отсюда и подтормаживания уведомлений и прокрутки.
+    poster ||= document.querySelector(POSTER);
+    if (poster && !poster.isConnected) poster = document.querySelector(POSTER);
+    const pulse = root.dataset.otVideo ? '0' : (env.bass * 0.03 + env.beat * 0.025).toFixed(3);
+    if (poster && pulse !== lastPulse) {
+      lastPulse = pulse;
+      poster.style.setProperty('--ot-pulse', pulse);
+    }
     // Яркость фона раз в секунду: по ней текст становится тёмным на светлом.
     if (now - lastLight > 1000) {
       lastLight = now;
@@ -150,7 +161,9 @@
     layer = context = null;
     delete root.dataset.otLive;
     ot.setBackdropLight?.('live', null);
-    root.style.removeProperty('--ot-pulse');
+    poster?.style.removeProperty('--ot-pulse');
+    poster = null;
+    lastPulse = '';
   }
 
   ot.on('tick', () => {

@@ -93,6 +93,7 @@ module.exports = function createRelease({ root, dataDir }) {
   }
 
   /** Качаем установщик новой версии, сверяем контрольную сумму и запускаем его в режиме обновления. */
+  let updating = false;
   async function update() {
     await check(true);
     if (!latest?.version || !newer(latest.version, pkg.version)) throw new Error('Новой версии нет');
@@ -107,6 +108,7 @@ module.exports = function createRelease({ root, dataDir }) {
     const file = path.join(dir, name);
     fs.writeFileSync(file, bytes);
     // Установщик сам дождётся закрытия приложения, обновит мод и откроет Яндекс Музыку снова.
+    updating = true;
     spawn(file, ['--update', '--relaunch'], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
     setTimeout(() => app.quit(), 500);
     return true;
@@ -114,6 +116,10 @@ module.exports = function createRelease({ root, dataDir }) {
 
   return {
     version: pkg.version,
+    /** Идёт обновление: сторож автопочинки при выходе не нужен, он только держит файл установщика. */
+    get updating() {
+      return updating;
+    },
     check,
     info,
     update,

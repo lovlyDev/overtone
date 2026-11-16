@@ -209,7 +209,7 @@ module.exports = function start({ dataDir, root }) {
   // установщик несколько минут в фоне ждёт: если приложение обновилось, ставит мод обратно и открывает его.
   app.on('will-quit', () => {
     const installer = path.join(dataDir, 'Overtone.exe');
-    if (!fs.existsSync(installer) || fs.existsSync(path.join(dataDir, 'dev-path.txt'))) return;
+    if (!fs.existsSync(installer) || fs.existsSync(path.join(dataDir, 'dev-path.txt')) || release.updating) return;
     try {
       spawn(installer, ['--repair', '--wait'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     } catch (error) {

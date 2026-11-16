@@ -26,7 +26,7 @@
 
   function apply() {
     const theme = ot.config.theme || 'default';
-    root.dataset.otTheme = theme;
+    if (root.dataset.otTheme !== theme) root.dataset.otTheme = theme;
     if (theme === 'glass' && !backdrop) {
       backdrop = ot.el('div', { id: 'ot-backdrop' }, [ot.el('div'), ot.el('div')]);
       document.body.prepend(backdrop);

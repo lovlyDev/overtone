@@ -155,8 +155,9 @@ html[data-ot-theme='glass'] :is(
   pointer-events: none;
   /* Клип проявляется из лёгкой дымки и чуть приближенным — как будто наводится фокус. */
   transition: opacity 1.8s ease, scale 2.4s cubic-bezier(0.2, 0.7, 0.2, 1), filter 1.8s ease;
-  will-change: opacity, scale, filter;
 }
+/* Отдельный слой видеокарте — только пока клип готовится и появляется, а не всё время. */
+html[data-ot-video] #ot-video { will-change: opacity, scale, filter; }
 #ot-video video { width: 100%; height: 100%; object-fit: cover; transform-origin: center; transition: transform 1.2s ease; }
 #ot-video::after {
   content: '';

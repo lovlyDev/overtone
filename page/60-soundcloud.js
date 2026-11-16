@@ -119,9 +119,11 @@
   function place() {
     if (nav) {
       const active = new URLSearchParams(location.search).get('playlistUuid')?.startsWith('50c10ad0-');
-      nav.dataset.active = String(!!active);
-      if (active) nav.querySelector('a')?.setAttribute('aria-current', 'page');
-      else nav.querySelector('a')?.removeAttribute('aria-current');
+      if (nav.dataset.active !== String(!!active)) {
+        nav.dataset.active = String(!!active);
+        if (active) nav.querySelector('a')?.setAttribute('aria-current', 'page');
+        else nav.querySelector('a')?.removeAttribute('aria-current');
+      }
     }
     for (const link of document.querySelectorAll('a[href*="trackId="]')) {
       const own = /trackId=70\d{11}(?:&|$)/.test(link.getAttribute('href'));

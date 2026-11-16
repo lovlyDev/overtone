@@ -79,7 +79,20 @@ function copySelf() {
   if (!require('node:sea').isSea?.()) return;
   fs.mkdirSync(lib.DATA, { recursive: true });
   fs.copyFileSync(process.execPath, `${SELF}.new`);
-  fs.rmSync(SELF, { force: true });
+  // Старые копии, отодвинутые в прошлый раз, — теперь уже свободны.
+  for (const name of fs.readdirSync(lib.DATA)) {
+    if (!/^Overtone\.exe\.old-\d+$/.test(name)) continue;
+    try {
+      fs.rmSync(path.join(lib.DATA, name), { force: true });
+    } catch {} // ещё занята — уберём в следующий раз
+  }
+  try {
+    fs.rmSync(SELF, { force: true });
+  } catch {
+    // Старый Overtone.exe ещё работает (например, сторож автопочинки): удалить нельзя,
+    // но Windows разрешает переименовать запущенный файл — отодвигаем его в сторону.
+    fs.renameSync(SELF, `${SELF}.old-${Date.now()}`);
+  }
   fs.renameSync(`${SELF}.new`, SELF);
 }
 
@@ -148,10 +161,9 @@ async function install() {
   const app = lib.locate();
   await step('Закрываю Яндекс Музыку', (note) => closeForWork(app, note));
   await step('Ставлю загрузчик', () => refreshBoot(app));
-  await step('Копирую файлы мода', () => {
-    lib.deploy(source);
-    copySelf();
-  });
+  await step('Копирую файлы мода', () => lib.deploy(source));
+  // Свой exe — не главное: если не вышло, мод всё равно обновлён, а exe заменится в следующий раз.
+  await step('Обновляю установщик', () => copySelf(), { soft: true, note: 'обновится в следующий раз' });
   await step('Включаю автопочинку', () => registerSystem());
   await step('Скачиваю yt-dlp для клипов и SoundCloud', () => lib.ytdlp(), { soft: true, note: 'скачается при следующем обновлении' });
   return app;
@@ -183,6 +195,7 @@ async function repair() {
   try {
     const until = Date.now() + (flag('--wait') ? 5 * 60_000 : 0);
     let lastSize = -1;
+    let seenClosed = false;
     do {
       let app;
       try {
@@ -210,6 +223,11 @@ async function repair() {
           if (wasRunning) launch(app);
           return;
         }
+      } else if (!lib.isRunning(app)) {
+        seenClosed = true;
+      } else if (seenClosed) {
+        // Музыку закрыли и открыли снова, а мод на месте: обновления не было — сторожить дальше незачем.
+        return;
       }
       if (Date.now() < until) await wait(5000);
     } while (Date.now() < until);
@@ -221,9 +239,13 @@ async function repair() {
 async function update() {
   const app = lib.locate();
   log(`обновление до ${source.version}`);
-  if (!(await waitClosed(app, 60))) await closeForWork(app);
-  await install();
-  if (flag('--relaunch')) launch(app);
+  try {
+    if (!(await waitClosed(app, 60))) await closeForWork(app);
+    await install();
+  } finally {
+    // Что бы ни случилось, музыку возвращаем: человек нажал «Обновить», а не «Закрыть».
+    if (flag('--relaunch')) launch(app);
+  }
 }
 
 // ---------- окно ----------
