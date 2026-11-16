@@ -18,5 +18,7 @@ const api=createApi({dataDir:__dirname,soundcloud:{track:id=>id===track.id?track
  await request('/users/1/likes/tracks/add?track-id='+id,'POST');assert.equal(liked.length,1);
  await request('/users/1/likes/tracks/'+id+'/remove','POST');assert.equal(liked.length,0);
  assert.equal(await request('/account/status'),null);
+ const mixed = await request('/tracks','POST','--boundary123456\r\nContent-Disposition: form-data; name="trackIds"\r\n\r\n'+id+':'+id+'\r\n--boundary123456\r\nContent-Disposition: form-data; name="trackIds"\r\n\r\n153885088:43163864\r\n--boundary123456--\r\n');
+ assert.deepEqual(mixed.nativeIds,['153885088']);
  console.log('API SoundCloud: плейлисты, карточки, адреса файлов, лайки и пропуск родных запросов — в порядке');
 })().catch(e=>{console.error(e);process.exitCode=1});

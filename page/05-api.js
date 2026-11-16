@@ -9,13 +9,45 @@
     if (url.origin !== 'https://api.music.yandex.net') return original.call(this, input, options);
     const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
-    if (!/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname)) {
+    const merge = /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
+    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname)) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);
     request.signal.throwIfAborted();
     const body = ['GET', 'HEAD'].includes(method) ? '' : await request.clone().text();
-    const reply = await window.overtone.api({ url: url.href, method, body });
+    let reply = await window.overtone.api({ url: url.href, method, body });
+    if (merge || reply?.nativeIds) {
+      let native = request;
+      if (reply?.nativeIds) {
+        let nativeBody;
+        const headers = new Headers(request.headers);
+        if (request.headers.get('content-type')?.includes('multipart/form-data')) {
+          const form = await request.clone().formData();
+          nativeBody = new FormData();
+          for (const [key, value] of form) {
+            if (/track.?ids/i.test(key) && /^70\d{11}(?=:|$)/.test(String(value))) continue;
+            nativeBody.append(key, value);
+          }
+          headers.delete('content-type');
+        } else if (request.headers.get('content-type')?.includes('application/json')) {
+          const data = JSON.parse(body);
+          const key = Object.keys(data).find((key) => /track.?ids/i.test(key)) || 'trackIds';
+          data[key] = Array.isArray(data[key]) ? reply.nativeIds : reply.nativeIds.join(',');
+          nativeBody = JSON.stringify(data);
+        } else {
+          const form = new URLSearchParams(body);
+          const key = [...form.keys()].find((key) => /track.?ids/i.test(key)) || 'trackIds';
+          form.set(key, reply.nativeIds.join(','));
+          nativeBody = form.toString();
+        }
+        native = new Request(request, { body: nativeBody, headers });
+      }
+      const response = await original.call(this, native);
+      if (!response.ok) return response;
+      reply = await window.overtone.api({ url: url.href, method, body, response: await response.clone().json() });
+      if (!reply) return response;
+    }
     request.signal.throwIfAborted();
     if (!reply) return original.call(this, input, options);
     return new Response(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body), {

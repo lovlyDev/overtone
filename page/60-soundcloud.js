@@ -61,6 +61,18 @@
   }
 
   function place() {
+    if (nav) {
+      const active = new URLSearchParams(location.search).get('playlistUuid')?.startsWith('50c10ad0-');
+      nav.dataset.active = String(!!active);
+      if (active) nav.querySelector('a')?.setAttribute('aria-current', 'page');
+      else nav.querySelector('a')?.removeAttribute('aria-current');
+    }
+    for (const link of document.querySelectorAll('a[href*="trackId="]')) {
+      const own = /trackId=70\d{11}(?:&|$)/.test(link.getAttribute('href'));
+      const badge = link.querySelector('.ot-sc-badge');
+      if (!own) badge?.remove();
+      else if (!badge) link.append(el('span', { className: 'ot-sc-badge', textContent: 'SC', title: 'SoundCloud', ariaLabel: 'SoundCloud' }));
+    }
     const list = document.querySelector('[class*="NavbarDesktop_navi"]');
     if (!list || nav?.isConnected) return;
     const sample = document.querySelector('[data-test-id="NAVBAR_NAVIGATION_ITEM_CONCERTS"]')?.closest('li');

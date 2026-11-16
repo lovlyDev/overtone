@@ -38,7 +38,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       cover: { type: 'from-album-cover', uri, prefix: '' }, genres: [], disclaimers: [],
     };
     return {
-      id, realId: id, title: track.title, version: 'SoundCloud', major: { id: 0, name: '-' },
+      id, realId: id, title: track.title, major: { id: 0, name: '-' },
+      r128: { i: -14, tp: 0 }, derivedColors: { average: '#202020', waveText: '#ffffff', miniPlayer: '#303030', accent: '#ff7700' },
       available: true, availableForPremiumUsers: true, availableFullWithoutPermission: false, availableForOptions: ['bookmate'],
       disclaimers: [], storageDir: '', durationMs: track.durationMs, fileSize: 0, previewDurationMs: 30000,
       artists: [artist],
@@ -88,7 +89,11 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
   }
 
   /** Номера треков из тела запроса в исходном порядке; формат (форма или JSON) не важен. */
-  const idsIn = (text) => [...decodeURIComponent(String(text || '')).matchAll(/(\d{5,})(?::\d+)?/g)].map((match) => match[1]);
+  const idsIn = (text) => {
+    const value = String(text || '');
+    if (value.startsWith('--')) return [...value.matchAll(/name="trackIds"\r\n\r\n(\d+)(?::\d+)?/g)].map((match) => match[1]);
+    return [...decodeURIComponent(value).matchAll(/(\d{5,})(?::\d+)?/g)].map((match) => match[1]);
+  };
 
   async function fileInfo(url) {
     const ids = (url.searchParams.get('trackIds') || url.searchParams.get('trackId') || '').split(',').filter(Boolean);
@@ -104,7 +109,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
           const next = soundcloud.searches().find((entry) => entry.ids.includes(source));
           if (next) soundcloud.prefetch(next.ids.slice(next.ids.indexOf(source) + 1));
           return {
-            trackId: id, quality: url.searchParams.get('quality') || 'nq', codec: 'aac-mp4', bitrate: soundcloud.bitrate(),
+            trackId: id, quality: 'nq', codec: 'aac', bitrate: soundcloud.bitrate(),
             transport: 'raw', gain: false, urls: [address], url: address, realId: id,
           };
         } catch (error) {
@@ -238,9 +243,6 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     send('Fetch.enable', {
       patterns: [
         { urlPattern: `${API}*`, requestStage: 'Request' },
-        { urlPattern: `${API}playlist/lk.*`, requestStage: 'Response' },
-        { urlPattern: `${API}tracks`, requestStage: 'Response' },
-        { urlPattern: `${API}landing-blocks/collection/playlist-with-likes*`, requestStage: 'Response' },
       ],
     });
   }
@@ -249,6 +251,24 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
   async function resolve(request) {
     const url = new URL(request.url);
     if (url.origin !== new URL(API).origin) return null;
+    if (request.response !== undefined) {
+      const data = request.response;
+      if (/\/playlist\/lk\./.test(url.pathname)) return { body: mergeLiked(data), status: 200 };
+      if (url.pathname.includes('/collection/playlist-with-likes') && data.summary) {
+        return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };
+      }
+      if (url.pathname === '/tracks' && Array.isArray(data)) {
+        const byId = new Map(data.map((track) => [String(track.id), track]));
+        return { body: idsIn(request.body).map((id) => isSynthetic(id) ? richById(id) : byId.get(id)).filter(Boolean), status: 200 };
+      }
+      return null;
+    }
+    if (url.pathname === '/tracks') {
+      const ids = idsIn(request.body);
+      if (ids.some(isSynthetic) && !ids.every(isSynthetic)) {
+        return { nativeIds: ids.filter((id) => !isSynthetic(id)) };
+      }
+    }
     const params = { request: { method: request.method || 'GET', postData: request.body || '' } };
     const reply = (_params, body, status = 200) => ({ body, status });
     return (await routeRequest(params, url, reply, async () => params.request.postData)) || null;

@@ -322,6 +322,8 @@ html[data-ot-video='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
 .ot-sc-navicon { display: inline-flex; width: 24px; height: 24px; }
 .ot-sc-navicon svg { width: 100%; height: 100%; }
 #ot-sc-nav a { cursor: pointer; }
+#ot-sc-nav[data-active='true'] a { color: #ff8800; }
+.ot-sc-badge { display: inline-block; margin-inline-start: 6px; color: #ff8800; font-size: 10px; font-weight: 700; vertical-align: middle; }
 #ot-sc-pop {
   position: fixed;
   z-index: 715;
