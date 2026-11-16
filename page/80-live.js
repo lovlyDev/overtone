@@ -27,6 +27,8 @@
   let current = null; // { image, alpha }
   let previous = null;
   let coverKey = '';
+  let lastPaint = 0;
+  let lastLight = 0;
   const env = { bass: 0, mid: 0, beat: 0, peak: { bass: 0.2, mid: 0.2 }, avgBass: 0, lastBeat: 0 };
 
   function band(spectrum, from, to) {
@@ -84,17 +86,37 @@
     }
     env.beat *= 0.92;
 
+    // 30 кадров в секунду: глазу хватает, а процессору вдвое легче.
+    if (now - lastPaint < 33) return;
+    lastPaint = now;
     context.globalCompositeOperation = 'source-over';
-    context.filter = 'none';
+    context.globalAlpha = 1;
     context.fillStyle = '#0b0b0f';
     context.fillRect(0, 0, WIDTH, HEIGHT);
-    context.filter = `blur(18px) saturate(${1.7 + env.mid * 0.6}) brightness(${0.78 + env.bass * 0.35 + env.beat * 0.25})`;
     // Смена трека: новая обложка проявляется поверх старой за пару секунд.
     if (current && current.alpha < 1) current.alpha = Math.min(1, current.alpha + 0.012);
     if (previous && current?.alpha < 1) paintCover(previous, time, 1);
     if (current) paintCover(current, time, current.alpha);
-    context.filter = 'none';
-    root.style.setProperty('--ot-pulse', (env.bass * 0.03 + env.beat * 0.025).toFixed(4));
+    // Бас и удар — вспышкой поверх, без фильтров.
+    const glow = env.bass * 0.22 + env.beat * 0.18;
+    if (glow > 0.01) {
+      context.globalCompositeOperation = 'screen';
+      context.globalAlpha = Math.min(0.5, glow);
+      context.fillStyle = '#fff';
+      context.fillRect(0, 0, WIDTH, HEIGHT);
+      context.globalCompositeOperation = 'source-over';
+      context.globalAlpha = 1;
+    }
+    // Пульс обложки — только когда она спокойно лежит, не во время перехода к клипу.
+    root.style.setProperty('--ot-pulse', root.dataset.otVideo ? '0' : (env.bass * 0.03 + env.beat * 0.025).toFixed(4));
+    // Яркость фона раз в секунду: по ней текст становится тёмным на светлом.
+    if (now - lastLight > 1000) {
+      lastLight = now;
+      const { data } = context.getImageData(0, 0, WIDTH, HEIGHT);
+      let sum = 0;
+      for (let at = 0; at < data.length; at += 16) sum += 0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2];
+      ot.setBackdropLight?.('live', sum / (data.length / 16) / 255);
+    }
   }
 
   function loadCover(url) {
@@ -109,7 +131,7 @@
 
   function mount(modal) {
     const canvas = ot.el('canvas', { id: 'ot-live', width: WIDTH, height: HEIGHT });
-    context = canvas.getContext('2d', { alpha: false });
+    context = canvas.getContext('2d', { alpha: false, willReadFrequently: true });
     if (!context) return false;
     layer = ot.el('div', { id: 'ot-live-wrap' }, [canvas]);
     modal.prepend(layer);
@@ -121,6 +143,7 @@
     layer?.remove();
     layer = context = null;
     delete root.dataset.otLive;
+    ot.setBackdropLight?.('live', null);
     root.style.removeProperty('--ot-pulse');
   }
 

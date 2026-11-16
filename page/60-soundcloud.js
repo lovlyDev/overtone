@@ -130,7 +130,7 @@
       else if (!badge) {
         // Метка SC — ссылка: открывает трек на SoundCloud в браузере.
         const node = el('span', { className: 'ot-sc-badge', textContent: 'SC', title: 'Открыть на SoundCloud', ariaLabel: 'Открыть на SoundCloud', role: 'link' });
-        const id = /trackId=(70d{11})/.exec(link.getAttribute('href'))[1];
+        const id = /trackId=(70\d{11})/.exec(link.getAttribute('href'))[1];
         node.addEventListener('click', (event) => {
           event.preventDefault();
           event.stopPropagation();

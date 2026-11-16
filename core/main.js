@@ -18,6 +18,7 @@ const createRelease = require('./release');
 const createDiscord = require('./discord');
 const createWave = require('./wave');
 const createLyrics = require('./lyrics');
+const createCovers = require('./covers');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -40,6 +41,7 @@ const DEFAULTS = {
   eqPreset: 'flat', // см. page/70-audio.js
   eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   loudness: 'off', // off | normal | loud | max
+  ymLyrics: true, // тексты из LRCLIB для треков Яндекса без своего текста
   waveMood: 'favorite', // характер волны SoundCloud: favorite | discover | popular
   discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
   discordClientId: '', // свой ID приложения; пусто — берётся из package.json
@@ -65,7 +67,9 @@ module.exports = function start({ dataDir, root }) {
   const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
   const lyrics = createLyrics({ dataDir });
   const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast?.('overtone:video-known', video.known()) });
-  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave, lyrics, video });
+  // Для обложки из клипа: номер ролика YouTube, который нашла разведка клипов.
+  const covers = createCovers({ dataDir, youtubeOf: (scId) => video.youtubeOf(String(7_000_000_000_000 + Number(scId))) });
+  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave, lyrics, video, covers });
   const windows = new Set();
   const broadcast = (channel, data) => {
     for (const win of windows) if (!win.isDestroyed()) win.webContents.send(channel, data);

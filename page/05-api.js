@@ -15,7 +15,7 @@
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
     const sync = url.pathname === '/collection/sync';
     const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
-    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info')) {
+    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);

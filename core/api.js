@@ -25,7 +25,7 @@ const toSoundcloud = (id) => String(Number(id) - BASE);
 const isSynthetic = (id) => /^70\d{11}$/.test(String(id));
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, '+00:00');
 
-module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave, lyrics, video }) {
+module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave, lyrics, video, covers }) {
   const likedYandex = new Set();
   const log = (...parts) => {
     if (!getConfig().debug) return;
@@ -33,7 +33,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
   };
 
   /** Обложка в формате приложения: адрес без схемы, где %% заменяется размером. У SoundCloud размер игнорируется. */
-  const coverUri = (track) => (track.cover ? `${track.cover.replace(/^https?:\/\//, '')}?%%` : '');
+  const coverUri = (track) => (track.cover ? `${track.cover.replace(/^https?:\/\//, '')}?%%` : covers?.get(track.id) || '');
 
   function richTrack(track) {
     const id = toSynthetic(track.id);
@@ -95,6 +95,30 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     return { ...playlist, tracks, trackCount: (playlist.trackCount || 0) + mine.length, durationMs: (playlist.durationMs || 0) + extra };
   }
 
+  /** Ключ текста для трека Яндекса — чтобы не пересечься с номерами SoundCloud. */
+  const ymKey = (id) => `y${id}`;
+  /** Треки без своего текста получают текст из LRCLIB, если он там есть. Возвращает новые карточки или null. */
+  async function withOwnLyrics(cards) {
+    if (!lyrics || getConfig().ymLyrics === false) return null;
+    const lacking = cards.filter((card) => card && !isSynthetic(card.id) && !card.lyricsInfo?.hasAvailableSyncLyrics && card.title && card.durationMs);
+    if (!lacking.length) return null;
+    await lyrics.ensure(lacking.map((card) => ({ id: ymKey(card.id), title: card.title, artist: (card.artists || []).map((artist) => artist.name).join(', '), durationMs: card.durationMs })), 1200);
+    let changed = false;
+    const next = cards.map((card) => {
+      if (!lacking.includes(card)) return card;
+      const text = lyrics.info(ymKey(card.id));
+      if (!text.synced && (!text.plain || card.lyricsInfo?.hasAvailableTextLyrics)) return card;
+      changed = true;
+      return {
+        ...card,
+        lyricsAvailable: true,
+        lyricsInfo: { hasAvailableSyncLyrics: text.synced || Boolean(card.lyricsInfo?.hasAvailableSyncLyrics), hasAvailableTextLyrics: true },
+        overtoneLyrics: true,
+      };
+    });
+    return changed ? next : null;
+  }
+
   /** Номера треков из тела запроса в исходном порядке; формат (форма или JSON) не важен. */
   const idsIn = (text) => {
     const value = String(text || '');
@@ -145,6 +169,26 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         log('playlist', playlist?.[1] || owned[1], entry ? 'ok' : 'missing');
         return entry ? fulfill(params, searchPlaylist(entry)) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
       }
+      const ymLyrics = /^\/tracks\/(\d{1,12})\/lyrics$/.exec(route);
+      if (ymLyrics && lyrics) {
+        const format = url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC';
+        const key = ymKey(ymLyrics[1]);
+        if (lyrics.text(key, format)) {
+          return fulfill(params, {
+            downloadUrl: `${API}overtone/lyrics/${key}?format=${format}`,
+            lyricId: Number(ymLyrics[1]),
+            externalLyricId: key,
+            writers: [],
+            major: { id: 0, name: 'LRCLIB', prettyName: 'LRCLIB' },
+          });
+        }
+        return false;
+      }
+      const ymText = /^\/overtone\/lyrics\/(y\d{1,12})$/.exec(route);
+      if (ymText) {
+        const text = lyrics?.text(ymText[1], url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC');
+        return text ? fulfill(params, text) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+      }
       const lyricsInfo = /^\/tracks\/(70\d{11})\/lyrics$/.exec(route);
       if (lyricsInfo) {
         const format = url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC';
@@ -177,7 +221,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
         if (ids.length && ids.every(isSynthetic)) {
           await soundcloud.ensure?.(ids.map(toSoundcloud));
-          await lyrics?.ensure(ids.map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean));
+          const sources = ids.map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
+          await Promise.all([lyrics?.ensure(sources), covers?.ensure(sources)]);
           const cards = ids.map(richById).filter(Boolean);
           video?.probe(cards);
           return fulfill(params, cards);
@@ -219,13 +264,17 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };
       }
       if (url.pathname === '/tracks' && Array.isArray(data) && !idsIn(request.body).some(isSynthetic)) {
-        const patched = replace?.patch(data);
-        return patched ? { body: patched, status: 200 } : null;
+        let cards = replace?.patch(data) || data;
+        const withLyrics = await withOwnLyrics(cards);
+        return withLyrics || cards !== data ? { body: withLyrics || cards, status: 200 } : null;
       }
       if (url.pathname === '/tracks' && Array.isArray(data)) {
         const byId = new Map((replace?.patch(data) || data).map((track) => [String(track.id), track]));
         const ids = idsIn(request.body);
         await soundcloud.ensure?.(ids.filter(isSynthetic).map(toSoundcloud));
+        // Смешанный список («Мне нравится»): треку SoundCloud без обложки тоже нужна обложка и текст.
+        const sources = ids.filter(isSynthetic).map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
+        await Promise.all([lyrics?.ensure(sources), covers?.ensure(sources)]);
         return { body: ids.map((id) => isSynthetic(id) ? richById(id) : byId.get(id)).filter(Boolean), status: 200 };
       }
       return null;
@@ -242,7 +291,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { nativeIds: ids.filter((id) => !isSynthetic(id)) };
       }
       // Только родные: пусть идут на сервер, а ответ посмотрим на недоступные треки.
-      if (ids.length && !ids.some(isSynthetic) && getConfig().scReplace) return { forward: true };
+      if (ids.length && !ids.some(isSynthetic) && (getConfig().scReplace || getConfig().ymLyrics !== false)) return { forward: true };
     }
     const params = { request: { method: request.method || 'GET', postData: request.body || '' } };
     const reply = (_params, body, status = 200) => ({ body, status });

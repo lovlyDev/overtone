@@ -32,6 +32,19 @@
     ot.config = config;
     ot.emit('config', config);
   });
+  /**
+   * Насколько светлый фон за текстом полноэкранного плеера (0…1) — от живого фона или клипа.
+   * Светлый фон — тёмный текст (html[data-ot-light]), чтобы его было видно.
+   */
+  const lights = {};
+  ot.setBackdropLight = (source, value) => {
+    if (value === null) delete lights[source];
+    else lights[source] = value;
+    const current = document.documentElement.dataset.otVideo === 'on' && 'video' in lights ? lights.video : lights.live;
+    const light = typeof current === 'number' && current > 0.58;
+    if (light) document.documentElement.dataset.otLight = 'true';
+    else delete document.documentElement.dataset.otLight;
+  };
   // Модули ниже подписываются на 'tick'; своих таймеров не заводят.
   setInterval(() => ot.emit('tick', performance.now()), 500);
 })();

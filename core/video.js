@@ -317,6 +317,8 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       }
       return out;
     },
+    /** Номер ролика YouTube, найденного разведкой, для обложки. */
+    youtubeOf: (id) => index[keyOf({ id })]?.youtube || null,
     /** Карточки, которые приложение показало: тихо выясняем, есть ли у них клипы. */
     probe(cards) {
       if (!getConfig().video) return;

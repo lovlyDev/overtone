@@ -213,7 +213,9 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
   // просит карточки (то есть по мере прокрутки), в несколько процессов yt-dlp сразу.
   const metaJobs = new Map();
   function fillMeta(ids) {
-    const missing = ids.filter((id) => state.tracks[id]?.pending && !metaJobs.has(id));
+    // Неполные карточки (плоский список отдал название, но без автора, длины и обложки) тоже дотягиваем — один раз.
+    const thin = (track) => track && !track.pending && !track.unavailable && !track.metaTried && !track.durationMs;
+    const missing = ids.filter((id) => (state.tracks[id]?.pending || thin(state.tracks[id])) && !metaJobs.has(id));
     const size = Math.ceil(missing.length / META_WORKERS);
     for (let at = 0; at < missing.length; at += size) {
       const group = missing.slice(at, at + size);
@@ -222,7 +224,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
           for (const line of out.split(/\r?\n/).filter(Boolean)) {
             try {
               const record = recordOf(JSON.parse(line));
-              if (record && state.tracks[record.id]) state.tracks[record.id] = record;
+              if (record && state.tracks[record.id]) state.tracks[record.id] = { ...state.tracks[record.id], ...record, pending: false };
             } catch {}
           }
         })
@@ -231,6 +233,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
           // Чего yt-dlp не отдал, то недоступно: показываем честно, а не пустой строкой.
           for (const id of group) {
             if (state.tracks[id]?.pending) state.tracks[id] = { ...state.tracks[id], pending: false, title: 'Трек недоступен', artist: 'SoundCloud', unavailable: true };
+            else if (state.tracks[id] && !state.tracks[id].durationMs) state.tracks[id].metaTried = true;
             metaJobs.delete(id);
           }
           save();

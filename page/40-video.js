@@ -66,6 +66,9 @@
       return;
     }
     const { data } = context.getImageData(0, 0, width, height);
+    let light = 0;
+    for (let at = 0; at < data.length; at += 4) light += 0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2];
+    ot.setBackdropLight?.('video', light / (data.length / 4) / 255);
     const dark = (x, y) => {
       const at = (y * width + x) * 4;
       return data[at] + data[at + 1] + data[at + 2] < 54;
@@ -113,6 +116,8 @@
     player.addEventListener('canplay', () => (ready = true));
     // Полосы ищем на нескольких кадрах: первый кадр часто чёрный целиком.
     player.addEventListener('playing', () => [600, 2500, 6000].forEach((ms) => setTimeout(() => fitBars(player), ms)));
+    // Сцены в клипе меняются — яркость перемеряем каждые 3 секунды.
+    setInterval(() => root.dataset.otVideo === 'on' && fitBars(player), 3000);
     layer = ot.el('div', { id: 'ot-video' }, [player]);
     modal.prepend(layer);
   }
