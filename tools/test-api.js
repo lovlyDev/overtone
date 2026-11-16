@@ -16,6 +16,12 @@ const api=createApi({dataDir:__dirname,soundcloud:{track:id=>id===track.id?track
  assert.equal((await request('/get-file-info?trackId='+id)).body.downloadInfo.transport,'raw');
  assert.equal((await request('/get-file-info/batch?trackIds='+id)).body.downloadInfos.length,1);
  await request('/users/1/likes/tracks/add?track-id='+id,'POST');assert.equal(liked.length,1);
+ const nativeSync = { values: { likedTracks: { info: { revision: 100 }, values: { liked: [{trackId:'123456'}], disliked: [{trackId:'234567'}] } } } };
+ const sync = await api.resolve({url:'https://api.music.yandex.net/collection/sync',response:nativeSync});
+ assert.deepEqual(sync.body.values.likedTracks.values.liked.map(item=>item.trackId),['123456',id]);
+ assert.deepEqual(sync.body.values.likedTracks.values.disliked,[{trackId:'234567'}]);
+ assert.notEqual(sync.body.values.likedTracks.info.revision,100);
+ assert.equal(nativeSync.values.likedTracks.values.liked.length,1);
  await request('/users/1/likes/tracks/'+id+'/remove','POST');assert.equal(liked.length,0);
  assert.equal(await request('/account/status'),null);
  const mixed = await request('/tracks','POST','--boundary123456\r\nContent-Disposition: form-data; name="trackIds"\r\n\r\n'+id+':'+id+'\r\n--boundary123456\r\nContent-Disposition: form-data; name="trackIds"\r\n\r\n153885088:43163864\r\n--boundary123456--\r\n');

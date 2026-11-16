@@ -253,6 +253,14 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     if (url.origin !== new URL(API).origin) return null;
     if (request.response !== undefined) {
       const data = request.response;
+      if (url.pathname === '/collection/sync' && data.values?.likedTracks?.values) {
+        const tracks = data.values.likedTracks;
+        const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));
+        const local = mine.reduce((hash, item) => (hash * 31 + item.at) % 999983, 0);
+        const liked = [...tracks.values.liked.filter((item) => !isSynthetic(item.trackId)), ...mine.map((item) => ({ trackId: toSynthetic(item.id), timestamp: iso(item.at) }))];
+        const revision = tracks.info.revision + (mine.length ? (local + 1) / 1000000 : 0);
+        return { body: { ...data, values: { ...data.values, likedTracks: { ...tracks, info: { ...tracks.info, revision }, values: { ...tracks.values, liked } } } }, status: 200 };
+      }
       if (/\/playlist\/lk\./.test(url.pathname)) return { body: mergeLiked(data), status: 200 };
       if (url.pathname.includes('/collection/playlist-with-likes') && data.summary) {
         return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };

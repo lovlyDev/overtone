@@ -9,7 +9,8 @@
     if (url.origin !== 'https://api.music.yandex.net') return original.call(this, input, options);
     const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
-    const merge = /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
+    const sync = url.pathname === '/collection/sync';
+    const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
     if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname)) {
       return original.call(this, input, options);
     }
@@ -19,6 +20,12 @@
     let reply = await window.overtone.api({ url: url.href, method, body });
     if (merge || reply?.nativeIds) {
       let native = request;
+      if (sync) {
+        const data = JSON.parse(body);
+        // Локальная ревизия содержит лайки SC; серверу нужна его собственная полная коллекция.
+        data.likedTracks = { allValuesRequired: true };
+        native = new Request(request, { body: JSON.stringify(data) });
+      }
       if (reply?.nativeIds) {
         let nativeBody;
         const headers = new Headers(request.headers);
@@ -49,7 +56,9 @@
       if (!reply) return response;
     }
     request.signal.throwIfAborted();
-    if (!reply) return original.call(this, input, options);
+    // Конструктор Request забирает поток тела у исходного Request.
+    // После проверки передаём дальше уже созданный объект, иначе родная порция остаётся без тела.
+    if (!reply) return original.call(this, request);
     return new Response(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body), {
       status: reply.status,
       headers: { 'content-type': 'application/json; charset=utf-8' },
