@@ -17,6 +17,18 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
   const cacheDir = path.join(dataDir, 'cache', 'audio');
   const stateFile = path.join(dataDir, 'soundcloud.json');
   const downloads = new Map();
+  const waiting = [];
+  let active = 0;
+  async function download(task) {
+    if (active >= 2) await new Promise((resolve) => waiting.push(resolve));
+    else active += 1;
+    try {
+      return await task();
+    } finally {
+      if (waiting.length) waiting.shift()();
+      else active -= 1;
+    }
+  }
   let state = { tracks: {}, liked: [], searches: [] };
   try {
     const saved = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
@@ -82,7 +94,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
   const baseName = (id, level) => `sc${String(id).replace(/\W/g, '')}.${level}`;
   function cached(id, level = quality()) {
     if (!fs.existsSync(cacheDir)) return null;
-    const name = fs.readdirSync(cacheDir).find((item) => item.startsWith(`${baseName(id, level)}.`));
+    const name = fs.readdirSync(cacheDir).find((item) => item === `${baseName(id, level)}.m4a`);
     return name ? path.join(cacheDir, name) : null;
   }
 
@@ -107,18 +119,18 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
     const key = `${id}.${level}`;
     if (!downloads.has(key)) {
       const track = state.tracks[id];
-      const job = (async () => {
+      const job = download(async () => {
         if (!track) throw new Error('трек не найден в реестре');
         fs.mkdirSync(cacheDir, { recursive: true });
         const out = await run(
-          [track.url, '-f', FORMATS[level], '-o', path.join(cacheDir, `${baseName(id, level)}.%(ext)s`), '--no-part', '--no-playlist', '--quiet', '--no-simulate', '--print', 'after_move:filepath'],
+          [track.url, '-f', FORMATS[level], '-o', path.join(cacheDir, `${baseName(id, level)}.%(ext)s`), '--no-playlist', '--quiet', '--no-simulate', '--print', 'after_move:filepath'],
           120_000,
         );
         const result = out.trim().split(/\r?\n/).pop();
         if (!result || !fs.existsSync(result)) throw new Error('SoundCloud не отдал трек');
         trim();
         return result;
-      })();
+      });
       downloads.set(key, job.finally(() => downloads.delete(key)));
     }
     return downloads.get(key);

@@ -109,6 +109,7 @@ module.exports = function start({ dataDir, root }) {
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
   ipcMain.handle('overtone:sc-search', async (_event, query) => api.uuidOf((await soundcloud.search(query)).key));
   ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.query })));
+  ipcMain.handle('overtone:api', (_event, request) => api.resolve(request));
   ipcMain.handle('overtone:video-stats', () => video.stats());
   ipcMain.handle('overtone:video-known', () => video.known());
   ipcMain.handle('overtone:video-clear', () => video.clear());

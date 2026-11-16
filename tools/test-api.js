@@ -1,0 +1,22 @@
+'use strict';
+const assert = require('node:assert/strict');
+const createApi = require('../core/api');
+const track = {id:'1234567890',title:'Проверка',durationMs:60000,artist:'Автор'};
+const entry = {key:'012345abcdef',ids:[track.id],query:'Проверка',at:Date.now()};
+const liked=[];
+const api=createApi({dataDir:__dirname,soundcloud:{track:id=>id===track.id?track:null,searches:()=>[entry],liked:()=>liked,like:id=>liked.push({id,at:Date.now()}),unlike:()=>liked.splice(0),file:()=>Promise.resolve('cache.m4a'),prefetch:()=>{},bitrate:()=>160},media:{url:id=>'http://127.0.0.1:1234/sc/'+id+'.m4a'},getConfig:()=>({})});
+(async()=>{
+ const request=(path,method='GET',body='')=>api.resolve({url:'https://api.music.yandex.net'+path,method,body});
+ const playlist=await request('/playlist/'+api.uuidOf(entry.key));
+ assert.equal(playlist.status,200);assert.equal(playlist.body.tracks.length,1);
+ assert.equal((await request('/users/70/playlists/'+playlist.body.kind)).body.title,playlist.body.title);
+ assert.equal((await request('/playlist/50c10ad0-0000-4000-8000-000000000000')).status,404);
+ const id='7001234567890';
+ assert.equal((await request('/tracks','POST','track-ids='+id)).body[0].id,id);
+ assert.equal((await request('/get-file-info?trackId='+id)).body.downloadInfo.transport,'raw');
+ assert.equal((await request('/get-file-info/batch?trackIds='+id)).body.downloadInfos.length,1);
+ await request('/users/1/likes/tracks/add?track-id='+id,'POST');assert.equal(liked.length,1);
+ await request('/users/1/likes/tracks/'+id+'/remove','POST');assert.equal(liked.length,0);
+ assert.equal(await request('/account/status'),null);
+ console.log('API SoundCloud: плейлисты, карточки, адреса файлов, лайки и пропуск родных запросов — в порядке');
+})().catch(e=>{console.error(e);process.exitCode=1});

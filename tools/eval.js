@@ -25,7 +25,8 @@
     require('fs').writeFileSync(process.argv[3], Buffer.from(data, 'base64'));
     console.log('saved', process.argv[3]);
   } else {
-    const result = await call('Runtime.evaluate', { expression: process.argv[2], awaitPromise: true, returnByValue: true });
+    const expression = process.argv[2] === '--file' ? require('fs').readFileSync(process.argv[3], 'utf8') : process.argv[2];
+    const result = await call('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true, userGesture: true });
     console.log(JSON.stringify(result.exceptionDetails ? result.exceptionDetails.exception?.description || result.exceptionDetails : result.result.value, null, 1));
   }
   socket.close();

@@ -61,7 +61,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     const tracks = entry.ids.map((id) => soundcloud.track(id)).filter(Boolean);
     const uri = coverUri(tracks.find((track) => track.cover) || {});
     return {
-      owner: OWNER, playlistUuid: uuidOf(entry.key), available: true, uid: OWNER.uid, kind: 1000,
+      owner: OWNER, playlistUuid: uuidOf(entry.key), available: true, uid: OWNER.uid, kind: parseInt(entry.key, 16),
       title: `SoundCloud: ${entry.query}`, description: 'Результаты поиска по SoundCloud. Сердечко добавляет трек в «Мне нравится».',
       revision: 1, snapshot: 1, trackCount: tracks.length, visibility: 'public', collective: false,
       created: iso(entry.at), modified: iso(entry.at), isBanner: false, isPremiere: false,
@@ -97,7 +97,9 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
         const id = raw.split(':')[0];
         const source = toSoundcloud(id);
         try {
-          await soundcloud.file(source);
+          if (!isSynthetic(id) || !soundcloud.track(source)) return { trackId: id, error: 'not-found' };
+          // Скачивание ждёт медиасервер; запрос адреса не задерживает запуск плеера.
+          soundcloud.file(source).catch((error) => log('download failed', id, error.message));
           const address = media.url(source);
           const next = soundcloud.searches().find((entry) => entry.ids.includes(source));
           if (next) soundcloud.prefetch(next.ids.slice(next.ids.indexOf(source) + 1));
@@ -113,6 +115,46 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     );
     return url.pathname.endsWith('/batch') ? { downloadInfos: infos } : { downloadInfo: infos[0] };
   }
+
+    /** Запрос ещё не ушёл. Возвращает true, если ответили сами. */
+    async function routeRequest(params, url, fulfill, postOf) {
+      const { method } = params.request;
+      if (method === 'OPTIONS') return false;
+      const route = url.pathname;
+      if (route.startsWith('/get-file-info') && SYNTHETIC.test(url.search)) {
+        log('file-info', url.search.slice(0, 80));
+        return fulfill(params, await fileInfo(url));
+      }
+      const playlist = PLAYLIST.exec(route);
+      const owned = /^\/users\/70\/playlists\/(\d+)$/.exec(route);
+      if (playlist || owned) {
+        const entry = soundcloud.searches().find((item) => playlist ? item.key === playlist[1] : parseInt(item.key, 16) === Number(owned[1]));
+        log('playlist', playlist?.[1] || owned[1], entry ? 'ok' : 'missing');
+        return entry ? fulfill(params, searchPlaylist(entry)) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+      }
+      const like = /\/likes\/tracks\/(add|[^/]+\/remove)/.exec(route);
+      if (like) {
+        const id = (like[1] === 'add' ? url.searchParams.get('track-id') || '' : like[1]).split(/[:/]/)[0];
+        if (!isSynthetic(id)) return false;
+        if (like[1] === 'add') soundcloud.like(toSoundcloud(id));
+        else soundcloud.unlike(toSoundcloud(id));
+        log('like', like[1], id);
+        return fulfill(params, { revision: Math.floor(Date.now() / 1000) });
+      }
+      if (route === '/tracks' && method === 'POST') {
+        const ids = idsIn(await postOf(params));
+        // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
+        if (ids.length && ids.every(isSynthetic)) return fulfill(params, ids.map(richById).filter(Boolean));
+        return false;
+      }
+      if (SYNTHETIC.test(url.pathname + url.search)) {
+        log('blocked', method, route);
+        return fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+      }
+      if (route === '/plays' && SYNTHETIC.test(await postOf(params))) return fulfill(params, '"ok"');
+      return false;
+    }
+
 
   function attach(contents) {
     const wire = contents.debugger;
@@ -145,7 +187,6 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       return send('Fetch.fulfillRequest', {
         requestId: params.requestId,
         responseCode: status,
-        // Без явной строки состояния страница получает код 0 и считает ответ ошибкой.
         responsePhrase: status === 200 ? 'OK' : 'Not Found',
         responseHeaders: headers,
         body: Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)).toString('base64'),
@@ -157,44 +198,6 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       const data = await wire.sendCommand('Fetch.getRequestPostData', { requestId: params.requestId }).catch(() => null);
       return data ? (data.base64Encoded ? Buffer.from(data.postData, 'base64').toString('utf8') : data.postData) : '';
     };
-
-    /** Запрос ещё не ушёл. Возвращает true, если ответили сами. */
-    async function onRequest(params, url) {
-      const { method } = params.request;
-      if (method === 'OPTIONS') return false;
-      const route = url.pathname;
-      if (route.startsWith('/get-file-info') && SYNTHETIC.test(url.search)) {
-        log('file-info', url.search.slice(0, 80));
-        return fulfill(params, await fileInfo(url));
-      }
-      const playlist = PLAYLIST.exec(route);
-      if (playlist) {
-        const entry = soundcloud.searches().find((item) => item.key === playlist[1]);
-        log('playlist', playlist[1], entry ? 'ok' : 'missing');
-        return entry && route.endsWith(uuidOf(entry.key)) ? fulfill(params, searchPlaylist(entry)) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
-      }
-      const like = /\/likes\/tracks\/(add|[^/]+\/remove)/.exec(route);
-      if (like) {
-        const id = (like[1] === 'add' ? url.searchParams.get('track-id') || '' : like[1]).split(/[:/]/)[0];
-        if (!isSynthetic(id)) return false;
-        if (like[1] === 'add') soundcloud.like(toSoundcloud(id));
-        else soundcloud.unlike(toSoundcloud(id));
-        log('like', like[1], id);
-        return fulfill(params, { revision: Math.floor(Date.now() / 1000) });
-      }
-      if (route === '/tracks' && method === 'POST') {
-        const ids = idsIn(await postOf(params));
-        // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
-        if (ids.length && ids.every(isSynthetic)) return fulfill(params, ids.map(richById).filter(Boolean));
-        return false;
-      }
-      if (SYNTHETIC.test(url.pathname + url.search)) {
-        log('blocked', method, route);
-        return fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
-      }
-      if (route === '/plays' && SYNTHETIC.test(await postOf(params))) return fulfill(params, '"ok"');
-      return false;
-    }
 
     /** Ответ сервера получен, но ещё не отдан странице. Возвращает true, если подменили. */
     async function onResponse(params, url) {
@@ -225,7 +228,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       const response = params.responseStatusCode !== undefined || params.responseErrorReason !== undefined;
       try {
         const url = new URL(params.request.url);
-        if (await (response ? onResponse(params, url) : onRequest(params, url))) return;
+        if (await (response ? onResponse(params, url) : routeRequest(params, url, fulfill, postOf))) return;
       } catch (error) {
         log('handler', error.message);
       }
@@ -242,5 +245,14 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     });
   }
 
-  return { attach, isSynthetic, uuidOf };
+  // Тот же маршрутизатор доступен странице без CDP: Electron отдаёт искусственные CDP-ответы со статусом 0.
+  async function resolve(request) {
+    const url = new URL(request.url);
+    if (url.origin !== new URL(API).origin) return null;
+    const params = { request: { method: request.method || 'GET', postData: request.body || '' } };
+    const reply = (_params, body, status = 200) => ({ body, status });
+    return (await routeRequest(params, url, reply, async () => params.request.postData)) || null;
+  }
+
+  return { attach, resolve, isSynthetic, uuidOf };
 };
