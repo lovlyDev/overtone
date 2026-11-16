@@ -49,7 +49,7 @@ function clipScore(item, track) {
 }
 
 /** Пауза после сетевой ошибки YouTube. Смена настроек её сбрасывает. */
-const RETRY_MS = 2 * 60 * 1000;
+const RETRY_MS = 30 * 1000;
 
 module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} }) {
   const cacheDir = path.join(dataDir, 'cache', 'video');
@@ -110,6 +110,8 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       '-o', path.join(cacheDir, `${key}.yt.%(ext)s`),
       '--no-part', '--no-simulate', '--quiet', '--no-warnings',
       '--print', 'after_move:filepath',
+      // YouTube режет скорость одного соединения: качаем куски в несколько потоков — в разы быстрее.
+      '--concurrent-fragments', '8',
     ];
     // Отсекаем часовые миксы и короткие тизеры; клип обычно чуть длиннее трека.
     if (seconds && !known) args.push('--match-filter', `duration>=${Math.max(seconds - 20, 30)} & duration<=${seconds + 150}`);
@@ -157,11 +159,13 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     }
   }
 
-  async function find(track, key) {
+  async function find(track, key, { skipYoutube = false } = {}) {
     const config = getConfig();
     fs.mkdirSync(cacheDir, { recursive: true });
     let found = null;
     if (config.videoYm) found = await fromYandex(track, key).catch(() => null);
+    // YouTube на паузе после сбоя сети: «не нашлось» не записываем — найдём, когда пауза кончится.
+    if (!found && config.videoYoutube && skipYoutube) return null;
     if (!found && config.videoYoutube) {
       try {
         try {
@@ -282,22 +286,27 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
   }
 
   return {
-    async get(track, { force = false } = {}) {
+    /** Скачать клип заранее; файл в страницу не передаём. */
+    async warm(track) {
+      return Boolean(await this.get(track, { light: true }));
+    },
+    async get(track, { force = false, light = false } = {}) {
       if (!track || !getConfig().video) return null;
       const key = keyOf(track);
       const known = index[key];
       if (known?.rejected) return null;
       if (known?.file && fs.existsSync(known.file)) {
         known.at = Date.now();
-        return payload(known);
+        return light ? true : payload(known);
       }
       // Старое «не нашлось» не в счёт, если разведка с тех пор нашла клип.
       if (known?.miss && !known.youtube && !known.ymUri && Date.now() - known.at < MISS_TTL_MS) return null;
-      // Кнопка «Скачать клип» — явная просьба: паузу после сетевой ошибки не ждём.
-      if (Date.now() < retryAfter && !force) return null;
-      if (!pending.has(key)) pending.set(key, find(track, key).finally(() => pending.delete(key)));
+      // После сбоя сети YouTube пару минут не трогаем, но клипы Яндекса ищем всегда.
+      // Кнопка «Скачать клип» — явная просьба: паузу не ждём.
+      const skipYoutube = Date.now() < retryAfter && !force;
+      if (!pending.has(key)) pending.set(key, find(track, key, { skipYoutube }).finally(() => pending.delete(key)));
       const found = await pending.get(key);
-      return found ? payload(found) : null;
+      return found ? (light ? true : payload(found)) : null;
     },
     /** «Не тот клип»: удаляем файл и больше для этого трека не ищем. */
     reject(track) {

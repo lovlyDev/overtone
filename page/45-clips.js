@@ -92,6 +92,8 @@
     }
   }
 
+  /** Известно ли заранее, что у трека есть клип (для повторных попыток в 40-video.js). */
+  ot.hasClip = (id) => known.has(String(id));
   const update = (kinds) => {
     known = new Map(Object.entries(kinds || {}).map(([id, value]) => [id, typeof value === 'string' ? { kind: value, saved: true } : value]));
     mark();

@@ -66,6 +66,8 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
       return { kind: found.kind, url: URL.createObjectURL(new Blob([found.bytes], { type: found.mime })) };
     },
     releaseVideo: (url) => URL.revokeObjectURL(url),
+    // Только скачать клип заранее, без передачи самого файла в страницу.
+    warmVideo: (track) => ipcRenderer.invoke('overtone:video-warm', track),
     rejectVideo: (track) => ipcRenderer.invoke('overtone:video-reject', track),
     sc: {
       search: (query) => ipcRenderer.invoke('overtone:sc-search', query),

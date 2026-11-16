@@ -182,6 +182,7 @@ module.exports = function start({ dataDir, root }) {
   ipcMain.handle('overtone:lastfm-finish', () => lastfm.finishLogin());
   ipcMain.handle('overtone:lastfm-logout', () => lastfm.logout());
   ipcMain.handle('overtone:video', (_event, track) => video.get(track));
+  ipcMain.handle('overtone:video-warm', async (_event, track) => Boolean(await video.warm(track)));
   ipcMain.handle('overtone:video-reject', (_event, track) => video.reject(track));
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
   ipcMain.handle('overtone:sc-search', async (_event, query) => api.uuidOf((await soundcloud.search(query)).key));

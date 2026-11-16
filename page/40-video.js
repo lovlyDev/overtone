@@ -113,23 +113,30 @@
     layer?.remove();
     key = '';
     player =ot.el('video', { muted: true, playsInline: true, loop: true, preload: 'auto' });
-    player.addEventListener('canplay', () => (ready = true));
+    player.addEventListener('canplay', () => {
+      ready = true;
+      // Клип скачался позже обычной задержки: даём обложке пару секунд, потом мигание и клип.
+      since = Math.max(since, performance.now() - (Number(ot.config.videoDelay) || 7) * 1000 + 2000);
+    });
     // Полосы ищем на нескольких кадрах: первый кадр часто чёрный целиком.
     player.addEventListener('playing', () => [600, 2500, 6000].forEach((ms) => setTimeout(() => fitBars(player), ms)));
-    // Сцены в клипе меняются — яркость перемеряем каждые 3 секунды.
-    setInterval(() => root.dataset.otVideo === 'on' && fitBars(player), 3000);
     layer = ot.el('div', { id: 'ot-video' }, [player]);
     modal.prepend(layer);
   }
 
-  async function load(track) {
-    const mine = (request += 1);
+  async function load(track, attempt = 0) {
+    const mine = attempt ? request : (request += 1);
     const found = await window.overtone.video(track).catch(() => null);
     if (mine !== request || !player) {
       if (found) window.overtone.releaseVideo(found.url);
       return;
     }
-    if (!found) return;
+    if (!found) {
+      // Клип точно есть (разведка нашла), но ещё качается или сеть моргнула — пробуем ещё, пока трек тот же.
+      const worth = ot.hasClip?.(track.id) || attempt < 2;
+      if (worth && attempt < 12) setTimeout(() => mine === request && player && load(track, attempt + 1), attempt < 3 ? 4000 : 10000);
+      return;
+    }
     source = found;
     player.src = found.url;
   }
@@ -144,6 +151,9 @@
     const synced = source.kind === 'yt' && position !== null && length && Math.abs(player.duration - length) <= SAME_LENGTH;
     if (synced && Math.abs(player.currentTime - position) > DRIFT) player.currentTime = position;
   }
+
+  // Сцены в клипе меняются — яркость и полосы перемеряем каждые 3 секунды.
+  setInterval(() => root.dataset.otVideo === 'on' && player && fitBars(player), 3000);
 
   ot.on('tick', (now) => {
     const modal = ot.config.video && document.querySelector(MODAL);
@@ -193,4 +203,14 @@
     window.overtone.rejectVideo(track);
   };
   ot.on('config', () => !ot.config.video && layer && unmount());
+
+  // Клип с YouTube качается до минуты. Начинаем сразу, как трек заиграл, даже без полноэкранного плеера:
+  // к моменту, когда его откроют или долистают, клип уже на диске.
+  let warmed = '';
+  ot.on('tick', () => {
+    const track = ot.track();
+    if (!ot.config.video || !track?.id || warmed === String(track.id) || !ot.hasClip?.(track.id)) return;
+    warmed = String(track.id);
+    window.overtone.warmVideo?.(track).catch(() => {});
+  });
 })();

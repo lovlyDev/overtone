@@ -11,8 +11,9 @@
   ot.liveReady = true;
   const MODAL = '[data-test-id="FULLSCREEN_PLAYER_MODAL"]';
   const root = document.documentElement;
-  const WIDTH = 240;
-  const HEIGHT = 150;
+  // Совсем маленький холст: растянутый на весь экран, он и так выглядит размытым — без дорогих фильтров.
+  const WIDTH = 96;
+  const HEIGHT = 60;
   /** Копии обложки: где плавают, как быстро вращаются, насколько крупные. */
   const BLOBS = [
     { x: 0.25, y: 0.3, ax: 0.18, ay: 0.12, speed: 0.035, spin: 0.05, size: 1.5, phase: 0 },
@@ -50,7 +51,6 @@
   }
 
   function paintCover(cover, time, alpha) {
-    const { image } = cover;
     const side = Math.max(WIDTH, HEIGHT);
     for (const blob of BLOBS) {
       const t = time * blob.speed + blob.phase;
@@ -61,7 +61,7 @@
       context.globalAlpha = alpha * 0.85;
       context.translate(x, y);
       context.rotate(time * blob.spin + blob.phase);
-      context.drawImage(image, -size / 2, -size / 2, size, size);
+      context.drawImage(cover.small, -size / 2, -size / 2, size, size);
       context.restore();
     }
   }
@@ -124,7 +124,13 @@
     image.crossOrigin = 'anonymous';
     image.onload = () => {
       previous = current?.alpha >= 1 ? current : previous || current;
-      current = { image, alpha: previous ? 0 : 1 };
+      // Обложку один раз ужимаем до 24 точек, размываем и насыщаем — дальше рисуется только эта крошка.
+      const small = document.createElement('canvas');
+      small.width = small.height = 24;
+      const pen = small.getContext('2d');
+      pen.filter = 'blur(1.5px) saturate(1.8)';
+      pen.drawImage(image, -2, -2, 28, 28);
+      current = { small, alpha: previous ? 0 : 1 };
     };
     image.src = url;
   }
