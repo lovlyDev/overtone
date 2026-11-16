@@ -44,7 +44,7 @@ const config = {
   output: path.join(dist, 'sea-prep.blob'),
   disableExperimentalSEAWarning: true,
   useCodeCache: false,
-  assets: { 'app.json': path.join(dist, 'app.json') },
+  assets: { 'app.json': path.join(dist, 'app.json'), 'ui.html': path.join(root, 'installer', 'ui.html') },
 };
 fs.writeFileSync(path.join(dist, 'sea-config.json'), JSON.stringify(config));
 execFileSync(process.execPath, ['--experimental-sea-config', path.join(dist, 'sea-config.json')], { stdio: 'inherit' });
@@ -73,6 +73,16 @@ if (process.env.RCEDIT && fs.existsSync(process.env.RCEDIT) && fs.existsSync(ico
     '--set-product-version', pkg.version], { stdio: 'inherit' });
 }
 run(npx, ['--yes', 'postject@1.0.0-alpha.6', NAME, 'NODE_SEA_BLOB', 'sea-prep.blob', '--sentinel-fuse', 'NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2', '--overwrite']);
+
+// Окно установщика — Edge, а сам exe работает без чёрного окна консоли: подсистема Windows GUI
+// (поле Subsystem в заголовке PE, 3 — консоль, 2 — окна).
+{
+  const bytes = fs.readFileSync(exe);
+  const pe = bytes.readUInt32LE(0x3c);
+  if (bytes.toString('latin1', pe, pe + 4) !== 'PE\0\0') throw new Error('не PE-файл');
+  bytes.writeUInt16LE(2, pe + 24 + 68);
+  fs.writeFileSync(exe, bytes);
+}
 
 // 4. manifest.json: по нему мод узнаёт о новой версии и о том, с какой Яндекс Музыкой она проверена.
 const changelog = fs.readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8');

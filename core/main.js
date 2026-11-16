@@ -175,8 +175,7 @@ module.exports = function start({ dataDir, root }) {
     const installer = path.join(dataDir, 'Overtone.exe');
     if (!fs.existsSync(installer) || fs.existsSync(path.join(dataDir, 'dev-path.txt'))) return;
     try {
-      const conhost = path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'conhost.exe');
-      spawn(conhost, ['--headless', installer, '--repair', '--wait', '--silent'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+      spawn(installer, ['--repair', '--wait'], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
     } catch (error) {
       console.error('[overtone] repair watcher', error);
     }

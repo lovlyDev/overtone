@@ -1,0 +1,288 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overtone</title>
+<style>
+  /* Overtone © lovlyDev · https://github.com/lovlyDev/overtone · Apache-2.0 (LICENSE, NOTICE)
+     При использовании этого кода обязательно указать автора (lovlyDev) и ссылку на проект. */
+  :root {
+    --bg: #0c0c0e;
+    --card: #141417;
+    --line: rgb(255 255 255 / 0.08);
+    --text: #f4f4f5;
+    --muted: #8b8b93;
+    --amber: #ffb800;
+    --amber-soft: rgb(255 184 0 / 0.14);
+    --ok: #6bd68f;
+    --bad: #ff6b5e;
+    color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex;
+    flex-direction: column;
+    background: var(--bg);
+    color: var(--text);
+    font: 14px/1.45 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+    user-select: none;
+    overflow: hidden;
+  }
+  /* Мягкое свечение за знаком. */
+  body::before {
+    content: '';
+    position: fixed;
+    left: 50%;
+    top: 120px;
+    width: 520px;
+    height: 520px;
+    translate: -50% -50%;
+    background: radial-gradient(circle, rgb(255 184 0 / 0.16), transparent 62%);
+    pointer-events: none;
+    animation: breathe 6s ease-in-out infinite;
+  }
+  @keyframes breathe { 50% { opacity: 0.55; scale: 0.92; } }
+
+  main { position: relative; flex: 1; display: flex; flex-direction: column; align-items: center; padding: 44px 36px 20px; }
+
+  /* ---------- знак ---------- */
+  .mark { width: 112px; height: 112px; overflow: visible; }
+  .mark circle, .mark path { fill: none; stroke: var(--amber); stroke-width: 7; stroke-linecap: round; }
+  /* Знак прорисовывается при открытии. Без анимации (настройка Windows «Убрать анимацию») он просто виден. */
+  @media (prefers-reduced-motion: no-preference) {
+    .mark .tone { stroke-dasharray: 170; stroke-dashoffset: 170; animation: draw 1.1s cubic-bezier(.65, 0, .35, 1) 0.1s forwards; }
+    .mark .over { stroke-dasharray: 63; stroke-dashoffset: 63; animation: draw 0.7s cubic-bezier(.65, 0, .35, 1) 0.9s forwards; }
+  }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+  .mark { filter: drop-shadow(0 0 18px rgb(255 184 0 / 0.35)); }
+  body[data-busy='true'] .mark .over { stroke-dashoffset: 0; animation: ring 1.2s ease-in-out infinite; }
+  @keyframes ring { 50% { opacity: 0.35; } }
+
+  h1 { margin: 18px 0 2px; font: 700 30px/1 "Segoe UI Variable Display", "Segoe UI", sans-serif; letter-spacing: -0.03em; }
+  .tagline { margin: 0; color: var(--muted); }
+  .version { color: var(--amber); font-weight: 600; }
+
+  /* ---------- состояние ---------- */
+  .status {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 10px 12px;
+    width: 100%;
+    margin: 28px 0 0;
+    padding: 16px 18px;
+    border-radius: 16px;
+    background: var(--card);
+    box-shadow: inset 0 0 0 1px var(--line);
+  }
+  .status dt { color: var(--muted); }
+  .status dd { margin: 0; text-align: end; font-weight: 600; }
+  .status dd small { color: var(--muted); font-weight: 400; }
+
+  /* ---------- шаги ---------- */
+  .steps { display: none; width: 100%; margin: 28px 0 0; padding: 6px 0; list-style: none; }
+  body[data-screen='work'] .steps, body[data-screen='done'] .steps { display: block; }
+  body:not([data-screen='home']) :is(.status, .features) { display: none; }
+  .steps li { display: flex; align-items: center; gap: 12px; padding: 9px 4px; color: var(--muted); transition: color .2s; }
+  .steps li::before {
+    content: '';
+    flex: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 2px var(--line);
+  }
+  .steps li[data-state='run'] { color: var(--text); }
+  .steps li[data-state='run']::before { box-shadow: inset 0 0 0 2px var(--amber-soft); border-top: 2px solid var(--amber); animation: spin .8s linear infinite; }
+  .steps li[data-state='ok'] { color: var(--text); }
+  .steps li[data-state='ok']::before { background: var(--ok) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='%230c0c0e' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/12px no-repeat; box-shadow: none; }
+  .steps li[data-state='warn']::before { background: var(--amber); box-shadow: none; }
+  .steps li[data-state='fail'] { color: var(--bad); }
+  .steps li[data-state='fail']::before { background: var(--bad); box-shadow: none; }
+  .steps li small { margin-inline-start: auto; color: var(--muted); font-size: 12px; text-align: end; }
+  @keyframes spin { to { rotate: 360deg; } }
+
+  .features { width: 100%; margin: 18px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 13px; }
+  .features li { padding: 3px 0 3px 18px; position: relative; }
+  .features li::before { content: ''; position: absolute; left: 4px; top: 11px; width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+
+  .message { min-height: 20px; margin: 18px 0 0; text-align: center; color: var(--muted); }
+  .message[data-tone='bad'] { color: var(--bad); }
+  .message[data-tone='ok'] { color: var(--text); font-weight: 600; font-size: 16px; }
+
+  /* ---------- кнопки ---------- */
+  footer { position: relative; display: flex; flex-direction: column; gap: 12px; padding: 0 36px 28px; }
+  .primary {
+    height: 52px;
+    border: 0;
+    border-radius: 999px;
+    background: var(--amber);
+    color: #111;
+    font: 700 16px "Segoe UI", sans-serif;
+    cursor: pointer;
+    transition: transform .12s, filter .2s, opacity .2s;
+  }
+  .primary:hover { filter: brightness(1.07); }
+  .primary:active { transform: scale(0.98); }
+  .primary:disabled { opacity: 0.45; cursor: default; transform: none; }
+  .links { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; }
+  .links button { border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; padding: 0; }
+  .links button:hover { color: var(--text); }
+  .links .danger:hover { color: var(--bad); }
+  [hidden] { display: none !important; }
+
+  /* Подтверждение удаления */
+  .confirm { display: flex; flex-direction: column; gap: 10px; padding: 16px; border-radius: 16px; background: var(--card); box-shadow: inset 0 0 0 1px rgb(255 107 94 / 0.35); }
+  .confirm label { display: flex; gap: 10px; align-items: center; color: var(--muted); cursor: pointer; }
+  .confirm input { accent-color: var(--bad); width: 16px; height: 16px; }
+  .confirm .row { display: flex; gap: 10px; }
+  .confirm button { flex: 1; height: 40px; border: 0; border-radius: 999px; font: 600 14px "Segoe UI", sans-serif; cursor: pointer; }
+  .confirm .yes { background: var(--bad); color: #fff; }
+  .confirm .no { background: rgb(255 255 255 / 0.08); color: var(--text); }
+</style>
+</head>
+<body data-screen="home">
+<main>
+  <svg class="mark" viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="tone" cx="43" cy="57" r="27" transform="rotate(-90 43 57)"/>
+    <path class="over" d="M43 17 A40 40 0 0 1 83 57"/>
+  </svg>
+  <h1>Overtone</h1>
+  <p class="tagline">мод для Яндекс Музыки · <span class="version" id="version"></span></p>
+
+  <dl class="status" id="status">
+    <dt>Яндекс Музыка</dt><dd id="ym">…</dd>
+    <dt>Overtone</dt><dd id="mod">…</dd>
+  </dl>
+
+  <ul class="features" id="features">
+    <li>SoundCloud прямо в приложении и замена пропавших треков</li>
+    <li>Клипы, живой фон, темы, эквалайзер</li>
+    <li>Сам чинится после обновлений Яндекс Музыки</li>
+  </ul>
+
+  <ol class="steps" id="steps"></ol>
+  <p class="message" id="message"></p>
+</main>
+<footer>
+  <div class="confirm" id="confirm" hidden>
+    <b>Удалить Overtone?</b>
+    <label><input type="checkbox" id="wipe"> Удалить и настройки, кеш клипов и треков</label>
+    <div class="row"><button class="no" id="no">Отмена</button><button class="yes" id="yes">Удалить</button></div>
+  </div>
+  <button class="primary" id="main" disabled>…</button>
+  <div class="links">
+    <button id="site">от lovlyDev · GitHub</button>
+    <button class="danger" id="remove" hidden>Удалить мод</button>
+    <button id="log" hidden>Журнал</button>
+  </div>
+</footer>
+<script>
+  const token = new URLSearchParams(location.search).get('t');
+  const $ = (id) => document.getElementById(id);
+  const call = (path, body) => fetch(path, { method: body ? 'POST' : 'GET', headers: { 'x-overtone': token, 'content-type': 'application/json' }, body: body && JSON.stringify(body) }).then((r) => r.json());
+  let state = null;
+  let action = 'install';
+
+  function paintHome(info) {
+    $('version').textContent = info.version;
+    $('ym').innerHTML = info.ym ? `${info.ym.version}${info.ym.running ? ' <small>· открыта</small>' : ''}` : '<small>не найдена</small>';
+    $('mod').innerHTML = info.dev ? 'режим разработки' : info.installed ? `${info.installedVersion || 'установлен'}` : '<small>не установлен</small>';
+    $('remove').hidden = !info.installed;
+    const main = $('main');
+    if (!info.ym) {
+      main.textContent = 'Скачать Яндекс Музыку';
+      action = 'download';
+      $('message').textContent = 'Сначала установи Яндекс Музыку и один раз запусти её.';
+    } else if (info.installed && info.installedVersion === info.version) {
+      main.textContent = 'Переустановить';
+      action = 'install';
+      $('message').textContent = 'Уже стоит эта версия. Переустановка заодно починит мод, если что-то сломалось.';
+    } else {
+      main.textContent = info.installed ? `Обновить до ${info.version}` : 'Установить';
+      action = 'install';
+      $('message').textContent = info.ym.running ? 'Яндекс Музыка закроется на минуту и откроется снова.' : '';
+    }
+    main.disabled = false;
+  }
+
+  function paintSteps(job) {
+    $('steps').replaceChildren(...job.steps.map((step) => {
+      const li = document.createElement('li');
+      li.dataset.state = step.state;
+      li.textContent = step.label;
+      if (step.note) {
+        const note = document.createElement('small');
+        note.textContent = step.note;
+        li.append(note);
+      }
+      return li;
+    }));
+  }
+
+  async function poll() {
+    const job = await call('/api/job');
+    paintSteps(job);
+    if (job.running) return setTimeout(poll, 250);
+    document.body.dataset.busy = 'false';
+    const message = $('message');
+    if (job.error) {
+      message.dataset.tone = 'bad';
+      message.textContent = job.error;
+      $('main').textContent = 'Попробовать ещё раз';
+      $('main').disabled = false;
+      $('log').hidden = false;
+      return;
+    }
+    document.body.dataset.screen = 'done';
+    message.dataset.tone = 'ok';
+    message.textContent = job.kind === 'uninstall' ? 'Overtone удалён. Яндекс Музыка снова такая, как была.' : 'Готово! Яндекс Музыка уже открывается.';
+    $('main').textContent = 'Закрыть';
+    $('main').disabled = false;
+    action = 'close';
+    $('remove').hidden = true;
+  }
+
+  async function start(kind, options = {}) {
+    document.body.dataset.screen = 'work';
+    document.body.dataset.busy = 'true';
+    $('message').textContent = '';
+    delete $('message').dataset.tone;
+    $('main').disabled = true;
+    $('main').textContent = kind === 'uninstall' ? 'Удаляю…' : 'Устанавливаю…';
+    $('confirm').hidden = true;
+    $('log').hidden = true;
+    await call(`/api/${kind}`, options);
+    poll();
+  }
+
+  $('main').addEventListener('click', () => {
+    if (action === 'close') return call('/api/quit', {}).finally(() => window.close());
+    if (action === 'download') return call('/api/open', { what: 'yandex' });
+    start('install');
+  });
+  $('remove').addEventListener('click', () => {
+    $('confirm').hidden = false;
+    $('main').hidden = true;
+  });
+  $('no').addEventListener('click', () => {
+    $('confirm').hidden = true;
+    $('main').hidden = false;
+  });
+  $('yes').addEventListener('click', () => {
+    $('main').hidden = false;
+    start('uninstall', { wipe: $('wipe').checked });
+  });
+  $('site').addEventListener('click', () => call('/api/open', { what: 'site' }));
+  $('log').addEventListener('click', () => call('/api/open', { what: 'log' }));
+  // Окно живо: установщик закроется сам, когда закроют окно.
+  setInterval(() => call('/api/alive', {}).catch(() => window.close()), 2000);
+  call('/api/info').then((info) => {
+    paintHome(info);
+    // Открыто из «Установленных приложений»: сразу спрашиваем про удаление.
+    if (new URLSearchParams(location.search).get('mode') === 'uninstall' && info.installed) $('remove').click();
+  });
+</script>
+</body>
+</html>

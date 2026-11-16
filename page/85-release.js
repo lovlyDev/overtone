@@ -94,7 +94,6 @@
   ot.openNotes = open;
 
   function place() {
-    // Встаём рядом с версией приложения; если её нет на этой странице — в угол.
     const anchor = document.querySelector('[data-test-id="RELEASE_NOTES_BUTTON"]');
     if (!pill) {
       pill = el('button', { type: 'button', id: 'ot-version' }, [el('i'), el('span')]);
@@ -103,12 +102,11 @@
       pill.addEventListener('click', open);
       paintPill();
     }
+    // Как и родная кнопка релизов — только на главной: там, где есть она.
     if (anchor) {
       if (pill.previousElementSibling !== anchor) anchor.after(pill);
-      pill.dataset.floating = 'false';
-    } else if (pill.parentNode !== document.body) {
-      document.body.append(pill);
-      pill.dataset.floating = 'true';
+    } else if (pill.isConnected) {
+      pill.remove();
     }
   }
 
