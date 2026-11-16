@@ -177,6 +177,14 @@
       ot.openNotes?.();
     });
 
+    const discordState = el('span', { className: 'ot-state' });
+    window.overtone.discordStatus?.().then(({ enabled, connected, clientId }) => {
+      discordState.textContent = !ot.config.discord ? '' : !clientId ? 'Не задан ID приложения Discord — статус не показывается.' : connected ? 'Discord подключён.' : 'Discord не запущен — статус появится, как только он откроется.';
+      discordState.dataset.ok = String(Boolean(enabled && connected));
+    });
+    const discordId = el('input', { className: 'ot-input', placeholder: 'ID приложения', value: ot.config.discordClientId || '', spellcheck: false });
+    discordId.addEventListener('change', () => ot.set({ discordClientId: discordId.value.trim() }));
+
     const close = el('button', { type: 'button', className: 'ot-close', textContent: '×', ariaLabel: 'Закрыть' });
     close.addEventListener('click', toggleOpen);
     return el('div', { id: 'ot-settings' }, [
@@ -207,6 +215,10 @@
       row('Пауза при блокировке', 'Win+L ставит музыку на паузу.', toggle('pauseOnLock')),
       row('Пауза без наушников', 'Отключил наушники — музыка встала, а не заиграла на весь дом.', toggle('pauseOnHeadphones')),
       row('Без рекламы и слежки', 'Блокирует рекламу, Яндекс Метрику и вебвизор. Рекомендации не страдают.', toggle('blockAds')),
+      section('Discord'),
+      row('Статус в Discord', 'Друзья видят «Слушает …», обложку и время трека. На паузе статус пропадает.', toggle('discord')),
+      discordState,
+      row('Своё приложение Discord', 'Необязательно. Если хочешь своё название вместо «Overtone» — вставь ID приложения (инструкция в docs/discord.md).', discordId),
       section('Last.fm'),
       row('Скробблинг', '', el('div', { className: 'ot-stack' }, [apiKey, secret, el('div', { className: 'ot-inline' }, lastfmButtons), lastfmNote])),
       section('Overtone'),
@@ -215,22 +227,55 @@
     ]);
   }
 
+  /**
+   * Страница настроек занимает область содержимого, как родные разделы: слева оглавление, справа пункты.
+   * Закрывается крестиком, Esc или переходом в любой раздел приложения.
+   */
+  let page = null;
+  function mountPanel(next) {
+    const body = page.querySelector('.ot-page-body');
+    const scroll = body.scrollTop;
+    body.replaceChildren(next);
+    body.scrollTop = scroll;
+    panel = next;
+    // Оглавление — из заголовков разделов.
+    const index = page.querySelector('.ot-page-index');
+    index.replaceChildren(...[...next.querySelectorAll('.ot-section')].map((head) => {
+      const link = el('button', { type: 'button', textContent: head.textContent });
+      link.addEventListener('click', () => body.scrollTo({ top: head.offsetTop - 16, behavior: 'smooth' }));
+      return link;
+    }));
+    const spy = () => {
+      const heads = [...next.querySelectorAll('.ot-section')];
+      const current = heads.filter((head) => head.offsetTop - 40 <= body.scrollTop).pop() || heads[0];
+      index.querySelectorAll('button').forEach((link, i) => (link.dataset.active = String(heads[i] === current)));
+    };
+    body.onscroll = spy;
+    spy();
+  }
   function render() {
     closeMenu();
-    if (!panel) return;
-    const next = build();
-    panel.replaceWith(next);
-    panel = next;
+    if (!page) return;
+    mountPanel(build());
   }
   function toggleOpen() {
     closeMenu();
-    if (panel) {
-      panel.remove();
+    if (page) {
+      page.remove();
+      page = null;
       panel = null;
-    } else {
-      panel = build();
-      document.body.append(panel);
+      button.dataset.active = 'false';
+      return;
     }
+    const host = document.querySelector('[class*="Content_main"]') || document.body;
+    if (getComputedStyle(host).position === 'static') host.style.position = 'relative';
+    page = el('section', { id: 'ot-page' }, [
+      el('aside', {}, [el('h1', { textContent: 'Overtone' }), el('nav', { className: 'ot-page-index' })]),
+      el('div', { className: 'ot-page-body ot-scroll' }),
+    ]);
+    host.append(page);
+    mountPanel(build());
+    button.dataset.active = 'true';
   }
 
   const button = el('button', { id: 'ot-button', type: 'button', title: 'Overtone (Ctrl+Shift+O)', textContent: 'Overtone' });
@@ -246,14 +291,21 @@
     if (event.ctrlKey && event.shiftKey && event.code === 'KeyO') toggleOpen();
     else if (event.key === 'Escape' && panel) toggleOpen();
   });
-  // Клик мимо панели всегда её закрывает, где бы она ни была открыта.
+  // Переход в любой раздел приложения закрывает страницу настроек.
   document.addEventListener(
-    'pointerdown',
+    'click',
     (event) => {
-      if (!panel || panel.contains(event.target) || button.contains(event.target) || menu?.contains(event.target)) return;
-      toggleOpen();
+      if (page && event.target.closest?.('[data-test-id="NAVBAR"] a[href], #ot-sc-nav a')) toggleOpen();
     },
     true,
   );
+  // Приложение может перерисовать область содержимого — тогда страница пропадает вместе с ней.
+  ot.on('tick', () => {
+    if (page && !page.isConnected) {
+      page = null;
+      panel = null;
+      button.dataset.active = 'false';
+    }
+  });
   ot.on('config', render);
 })();

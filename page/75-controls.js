@@ -54,7 +54,8 @@
     const track = ot.track();
     window.overtone.reportPlaying({
       playing: isPlaying(),
-      track: track ? { key: `${track.id}|${track.title}`, title: track.title, artist: track.artist, durationMs: track.durationMs } : null,
+      position: ot.position(),
+      track: track ? { key: `${track.id}|${track.title}`, id: track.id, title: track.title, artist: track.artist, durationMs: track.durationMs, cover: track.cover } : null,
     });
   });
 

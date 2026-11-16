@@ -70,10 +70,17 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
     sc: {
       search: (query) => ipcRenderer.invoke('overtone:sc-search', query),
       recent: () => ipcRenderer.invoke('overtone:sc-recent'),
+      importLikes: (link) => ipcRenderer.invoke('overtone:sc-import', link),
+      wave: (options) => ipcRenderer.invoke('overtone:wave', options),
+      waveSummary: () => ipcRenderer.invoke('overtone:wave-summary'),
+      onWaveProgress: (listener) => {
+        ipcRenderer.on('overtone:wave-progress', (_event, text) => listener(text));
+      },
       onUnavailable: (listener) => ipcRenderer.on('overtone:sc-unavailable', (_event, failure) => listener(failure)),
     },
     api: (request) => ipcRenderer.invoke('overtone:api', request),
     hotkeys: () => ipcRenderer.invoke('overtone:hotkeys'),
+    discordStatus: () => ipcRenderer.invoke('overtone:discord'),
     release: {
       info: (force) => ipcRenderer.invoke('overtone:release', force),
       update: () => ipcRenderer.invoke('overtone:release-update'),

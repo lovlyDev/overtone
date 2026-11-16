@@ -25,7 +25,8 @@ const toSoundcloud = (id) => String(Number(id) - BASE);
 const isSynthetic = (id) => /^70\d{11}$/.test(String(id));
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, '+00:00');
 
-module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace }) {
+module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave }) {
+  const likedYandex = new Set();
   const log = (...parts) => {
     if (!getConfig().debug) return;
     fs.appendFile(path.join(dataDir, 'api.log'), `${new Date().toISOString()} ${parts.join(' ')}\n`, () => {});
@@ -67,7 +68,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     const uri = coverUri(tracks.find((track) => track.cover) || {});
     return {
       owner: OWNER, playlistUuid: uuidOf(entry.key), available: true, uid: OWNER.uid, kind: parseInt(entry.key, 16),
-      title: entry.link ? entry.title : `SoundCloud: ${entry.query}`, description: entry.link ? 'Открыто по ссылке SoundCloud. Сердечко добавляет трек в «Мне нравится».' : 'Результаты поиска по SoundCloud. Сердечко добавляет трек в «Мне нравится».',
+      title: entry.link ? entry.title : `SoundCloud: ${entry.query}`,
+      description: entry.description || (entry.import ? 'Твои лайки с SoundCloud. Сердечко добавляет трек в «Мне нравится».' : entry.link ? 'Открыто по ссылке SoundCloud. Сердечко добавляет трек в «Мне нравится».' : 'Результаты поиска по SoundCloud. Сердечко добавляет трек в «Мне нравится».'),
       revision: 1, snapshot: 1, trackCount: tracks.length, visibility: 'public', collective: false,
       created: iso(entry.at), modified: iso(entry.at), isBanner: false, isPremiere: false,
       durationMs: tracks.reduce((sum, track) => sum + track.durationMs, 0),
@@ -148,6 +150,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         if (!isSynthetic(id)) return false;
         if (like[1] === 'add') soundcloud.like(toSoundcloud(id));
         else soundcloud.unlike(toSoundcloud(id));
+        wave?.learnLike(toSoundcloud(id), like[1] === 'add');
         log('like', like[1], id);
         return fulfill(params, { revision: Math.floor(Date.now() / 1000) });
       }
@@ -175,6 +178,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     if (url.origin !== new URL(API).origin) return null;
     if (request.response !== undefined) {
       const data = request.response;
+      if (url.pathname === '/collection/sync') for (const item of data.values?.likedTracks?.values?.liked || []) if (!isSynthetic(item.trackId)) likedYandex.add(String(item.trackId));
+      if (url.pathname === '/tracks' && Array.isArray(data) && likedYandex.size) wave?.learnFromYandex(data, likedYandex);
       if (url.pathname === '/collection/sync' && data.values?.likedTracks?.values) {
         const tracks = data.values.likedTracks;
         const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));

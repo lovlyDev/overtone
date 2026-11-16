@@ -15,6 +15,8 @@ const createSystem = require('./system');
 const createLastfm = require('./lastfm');
 const createReplace = require('./replace');
 const createRelease = require('./release');
+const createDiscord = require('./discord');
+const createWave = require('./wave');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -37,6 +39,9 @@ const DEFAULTS = {
   eqPreset: 'flat', // см. page/70-audio.js
   eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   loudness: 'off', // off | normal | loud | max
+  waveMood: 'favorite', // характер волны SoundCloud: favorite | discover | popular
+  discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
+  discordClientId: '', // свой ID приложения; пусто — берётся из package.json
   liveBackground: true, // живой фон в полноэкранном плеере, когда нет клипа
   lastfm: { apiKey: '', secret: '', session: '', user: '', enabled: false },
 };
@@ -52,10 +57,12 @@ module.exports = function start({ dataDir, root }) {
   try {
     config = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(configFile, 'utf8')) };
   } catch {}
-  const soundcloud = createSoundcloud({ dataDir, getConfig: () => config, onUnavailable: (failure) => broadcast('overtone:sc-unavailable', failure) });
+  let wave = null;
+  const soundcloud = createSoundcloud({ dataDir, getConfig: () => config, onUnavailable: (failure) => broadcast('overtone:sc-unavailable', failure), extraKeep: () => wave?.keep() || [] });
+  wave = createWave({ dataDir, soundcloud, getConfig: () => config });
   const media = createMedia({ soundcloud });
   const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
-  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace });
+  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave });
   const windows = new Set();
   const broadcast = (channel, data) => {
     for (const win of windows) if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -67,6 +74,7 @@ module.exports = function start({ dataDir, root }) {
     broadcast('overtone:config', publicConfig(config));
   };
   const release = createRelease({ root, dataDir });
+  const discord = createDiscord({ getConfig: () => config, defaultClientId: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).overtone?.discordClientId });
   const system = createSystem({ getConfig: () => config, windows, broadcast });
   const lastfm = createLastfm({ getConfig: () => config, setConfig: saveConfig });
   const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast('overtone:video-known', video.known()) });
@@ -142,10 +150,26 @@ module.exports = function start({ dataDir, root }) {
     release.setHealth(report);
     return release.info();
   });
+  ipcMain.handle('overtone:sc-import', async (_event, link) => api.uuidOf((await soundcloud.importLikes(link)).key));
+  ipcMain.handle('overtone:wave', async (event, options = {}) => {
+    const from = /^70\d{11}$/.test(String(options.from || '')) ? String(Number(options.from) - 7_000_000_000_000) : null;
+    const entry = await wave.build({ from, mood: options.mood, progress: (text) => event.sender.send('overtone:wave-progress', text) });
+    return api.uuidOf(entry.key);
+  });
+  ipcMain.handle('overtone:wave-summary', () => ({ ...wave.summary(), moods: Object.fromEntries(Object.entries(wave.MOODS).map(([key, value]) => [key, value.name])) }));
+  ipcMain.handle('overtone:discord', () => discord.status());
   ipcMain.handle('overtone:hotkeys', () => ({ defaults: system.HOTKEYS, failed: system.failedHotkeys() }));
   ipcMain.on('overtone:playing', (_event, state) => {
     system.setPlaying(state?.playing);
     lastfm.update(state);
+    // У трека SoundCloud ссылку на его страницу знает только главный процесс.
+    const id = String(state?.track?.id || '');
+    if (/^70\d{11}$/.test(id)) {
+      const source = soundcloud.track(String(Number(id) - 7_000_000_000_000));
+      if (source?.url && !/api\.soundcloud\.com/.test(source.url)) state.track.url = source.url;
+    }
+    discord.update(state);
+    wave.observe(state);
   });
   ipcMain.on('overtone:pause', () => system.playerAction('PAUSE'));
   ipcMain.handle('overtone:lastfm-login', () => lastfm.startLogin());
@@ -155,7 +179,7 @@ module.exports = function start({ dataDir, root }) {
   ipcMain.handle('overtone:video-reject', (_event, track) => video.reject(track));
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
   ipcMain.handle('overtone:sc-search', async (_event, query) => api.uuidOf((await soundcloud.search(query)).key));
-  ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.link ? `${item.title} · ссылка` : item.query })));
+  ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.kind ? item.title : item.import ? item.title : item.link ? `${item.title} · ссылка` : item.query, pinned: Boolean(item.pinned) })));
   ipcMain.handle('overtone:api', (_event, request) => api.resolve(request));
   ipcMain.handle('overtone:video-stats', () => video.stats());
   ipcMain.handle('overtone:video-known', () => video.known());

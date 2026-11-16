@@ -21,7 +21,7 @@ const LINK = /^(https?:\/\/)?(on\.|m\.|www\.)?(soundcloud\.com|snd\.sc)\//i;
 const META_WORKERS = 4;
 const SOUNDCLOUD_URL = /^https:\/\/(api\.|m\.|www\.)?soundcloud\.com\//;
 
-module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable = () => {} }) {
+module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable = () => {}, extraKeep }) {
   const cacheDir = path.join(dataDir, 'cache', 'audio');
   const stateFile = path.join(dataDir, 'soundcloud.json');
   const downloads = new Map();
@@ -71,7 +71,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
       // В реестре остаются отмеченные треки и самые свежие из поиска.
-      const keep = new Set([...state.liked.map((item) => item.id), ...state.searches.flatMap((item) => item.ids)]);
+      const keep = new Set([...state.liked.map((item) => item.id), ...state.searches.flatMap((item) => item.ids), ...(extraKeep?.() || [])]);
       const ids = Object.keys(state.tracks);
       for (const id of ids.slice(0, Math.max(0, ids.length - KEEP_TRACKS))) if (!keep.has(id)) delete state.tracks[id];
       fs.mkdirSync(dataDir, { recursive: true });
@@ -191,11 +191,17 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
       durationMs: Math.round((item.duration || 0) * 1000),
       cover: cover(item.thumbnails),
       url: page,
+      ...(item.genre || item.genres?.[0] ? { genre: String(item.genre || item.genres[0]).toLowerCase() } : {}),
+      ...(item.like_count ? { likes: item.like_count } : {}),
+      ...(item.view_count ? { plays: item.view_count } : {}),
+      ...(item.timestamp ? { at: item.timestamp * 1000 } : {}),
     };
   };
 
   function remember(entry) {
-    state.searches = [entry, ...state.searches.filter((item) => item.key !== entry.key)].slice(0, KEEP_SEARCHES);
+    const rest = state.searches.filter((item) => item.key !== entry.key);
+    const pinned = rest.filter((item) => item.pinned);
+    state.searches = [entry, ...pinned, ...rest.filter((item) => !item.pinned).slice(0, KEEP_SEARCHES)];
     save();
     prefetch(entry.ids);
     return entry;
@@ -280,6 +286,31 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
     return found;
   }
 
+  /** Лайки профиля SoundCloud отдельным плейлистом. Повторный импорт того же профиля обновляет его. */
+  async function importLikes(link) {
+    const match = /soundcloud\.com\/([\w-]+)/i.exec(String(link || ''));
+    if (!match || ['discover', 'search', 'you', 'stream', 'charts'].includes(match[1].toLowerCase())) throw new Error('нужна ссылка на профиль: soundcloud.com/имя');
+    const user = match[1];
+    const address = `https://soundcloud.com/${user}/likes`;
+    const known = state.searches.find((item) => item.import && item.query === address);
+    const out = await run(['--flat-playlist', '-J', '--', address], 180_000);
+    const data = JSON.parse(out);
+    const ids = [];
+    for (const item of data.entries || []) {
+      const id = String(item.id || '').replace(/\D/g, '');
+      if (!id) continue;
+      const record = recordOf({ ...item, id, webpage_url: item.webpage_url || `https://api.soundcloud.com/tracks/${id}` });
+      if (!record) continue;
+      if (!item.title) record.pending = true;
+      if (!state.tracks[id] || state.tracks[id].pending || !record.pending) state.tracks[id] = state.tracks[id] && record.pending ? state.tracks[id] : record;
+      ids.push(id);
+    }
+    if (!ids.length) throw new Error('у профиля нет открытых лайков');
+    const entry = remember({ key: keyFor(known), query: address, title: `Лайки ${user} · SoundCloud`, link: true, import: true, pinned: true, ids, at: Date.now() });
+    fillMeta(ids.slice(0, 40));
+    return entry;
+  }
+
   async function search(query) {
     const text = String(query || '').trim();
     if (!text) throw new Error('пустой запрос');
@@ -303,6 +334,23 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
   return {
     search,
     searchRaw,
+    importLikes,
+    run,
+    recordOf,
+    /** Кладёт треки в реестр (данные из поиска, похожих и т. п.). */
+    addTracks(records) {
+      for (const record of records) {
+        if (!record) continue;
+        const old = state.tracks[record.id];
+        state.tracks[record.id] = old && !old.pending && !record.pending ? { ...old, ...record } : record.pending && old ? old : record;
+      }
+      save();
+    },
+    /** Создаёт или обновляет закреплённый плейлист (волна и т. п.). */
+    pin(entry) {
+      const known = state.searches.find((item) => item.kind && item.kind === entry.kind);
+      return remember({ ...entry, key: keyFor(known), pinned: true, at: Date.now() });
+    },
     ensure,
     file,
     prefetch,
