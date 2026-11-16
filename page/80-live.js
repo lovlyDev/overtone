@@ -167,7 +167,7 @@
   }
 
   ot.on('tick', () => {
-    const modal = ot.config.liveBackground && document.querySelector(MODAL);
+    const modal = ot.config.liveBackground && !ot.config.lite && document.querySelector(MODAL);
     // Когда показан клип, фон не нужен: он под видео и только тратит силы.
     if (!modal || root.dataset.otVideo === 'on') return layer && unmount();
     if (!layer || layer.parentNode !== modal) {

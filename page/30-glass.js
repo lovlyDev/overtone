@@ -90,6 +90,8 @@
     const timers = new Map();
 
     const apply = (element) => {
+      // В режиме экономии преломление не строим: остаётся простое размытие.
+      if (ot.config.lite) return element.style.removeProperty('--ot-glass-filter');
       const width = Math.round(element.offsetWidth);
       const height = Math.round(element.offsetHeight);
       if (Math.min(width, height) < MIN_SIDE) return;
@@ -143,7 +145,14 @@
     };
   }
 
+  let lite = Boolean(ot.config.lite);
   function sync(theme) {
+    // Включили или выключили режим экономии — стекло собираем заново.
+    if (active && lite !== Boolean(ot.config.lite)) {
+      active();
+      active = null;
+    }
+    lite = Boolean(ot.config.lite);
     if (theme === 'glass' && !active) active = start();
     else if (theme !== 'glass' && active) {
       active();

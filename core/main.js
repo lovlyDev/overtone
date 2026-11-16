@@ -46,6 +46,7 @@ const DEFAULTS = {
   discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
   discordClientId: '', // свой ID приложения; пусто — берётся из package.json
   liveBackground: true, // живой фон в полноэкранном плеере, когда нет клипа
+  lite: false, // режим экономии: без живого фона, размытий и преломления — для слабых компьютеров
   lastfm: { apiKey: '', secret: '', session: '', user: '', enabled: false },
 };
 /** Что можно показывать странице: без секрета и ключа сессии Last.fm. */

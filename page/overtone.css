@@ -670,3 +670,19 @@ html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic
 #ot-clip-button[data-state='busy'] svg { animation: ot-wait 1s ease-in-out infinite; }
 .ot-clip[data-saved='false'] { opacity: .75; }
 #ot-clip-button svg { width: 24px; height: 24px; }
+
+/* ---------- Режим экономии ---------- */
+/* Снимаем всё, что видеокарта считает на каждом кадре: размытия, маски, тени текста, пульс. */
+html[data-ot-lite='on'] #ot-video,
+html[data-ot-lite='on'][data-ot-video] #ot-video { filter: none; scale: 1; will-change: auto; transition: opacity 1.2s ease; }
+html[data-ot-lite='on'] [class*='FullscreenPlayerDesktopPoster_root'] { filter: none !important; scale: 1 !important; transition: opacity 1s ease; }
+html[data-ot-lite='on'] [class*='SyncLyrics_content'] { -webkit-mask-image: none !important; mask-image: none !important; }
+html[data-ot-lite='on'] [class*='SyncLyricsLine_root'] { text-shadow: none !important; }
+html[data-ot-lite='on'] #ot-backdrop > div { filter: blur(24px) brightness(0.62); }
+html[data-ot-lite='on'] :is(#ot-settings, .ot-menu, #ot-page, [class*='PopoverWithActions_root'], [class*='ContextMenu_root'], [class*='Dropdown_container']) {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  [class*='FullscreenPlayerDesktopPoster_root'] { scale: 1 !important; animation: none !important; }
+}

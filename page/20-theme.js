@@ -27,6 +27,9 @@
   function apply() {
     const theme = ot.config.theme || 'default';
     if (root.dataset.otTheme !== theme) root.dataset.otTheme = theme;
+    // Режим экономии — атрибутом на <html>: по нему CSS снимает дорогие эффекты.
+    const lite = Boolean(ot.config.lite);
+    if (lite !== (root.dataset.otLite === 'on')) lite ? (root.dataset.otLite = 'on') : delete root.dataset.otLite;
     if (theme === 'glass' && !backdrop) {
       backdrop = ot.el('div', { id: 'ot-backdrop' }, [ot.el('div'), ot.el('div')]);
       document.body.prepend(backdrop);

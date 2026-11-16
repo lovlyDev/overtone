@@ -69,20 +69,31 @@
     let light = 0;
     for (let at = 0; at < data.length; at += 4) light += 0.2126 * data[at] + 0.7152 * data[at + 1] + 0.0722 * data[at + 2];
     ot.setBackdropLight?.('video', light / (data.length / 4) / 255);
-    const dark = (x, y) => {
+    // Полоса — не только чёрная: серая, белая, цветная подложка тоже. Признак один — строка (столбец)
+    // почти одного цвета, и этот цвет совпадает с краем кадра.
+    const pixel = (x, y) => {
       const at = (y * width + x) * 4;
-      return data[at] + data[at + 1] + data[at + 2] < 54;
+      return [data[at], data[at + 1], data[at + 2]];
     };
-    const rowDark = (y) => {
-      let count = 0;
-      for (let x = 0; x < width; x += 1) count += dark(x, y);
-      return count / width > 0.96;
+    const near = (a, b, limit) => Math.abs(a[0] - b[0]) + Math.abs(a[1] - b[1]) + Math.abs(a[2] - b[2]) < limit;
+    const uniform = (points, edge) => {
+      const mean = [0, 0, 0];
+      for (const p of points) for (let c = 0; c < 3; c += 1) mean[c] += p[c] / points.length;
+      if (!near(mean, edge, 36)) return false;
+      let same = 0;
+      for (const p of points) same += near(p, mean, 30);
+      return same / points.length > 0.96;
     };
-    const columnDark = (x) => {
-      let count = 0;
-      for (let y = 0; y < height; y += 1) count += dark(x, y);
-      return count / height > 0.96;
+    const row = (y) => Array.from({ length: width }, (_, x) => pixel(x, y));
+    const column = (x) => Array.from({ length: height }, (_, y) => pixel(x, y));
+    const edgeOf = (points) => {
+      const mean = [0, 0, 0];
+      for (const p of points) for (let c = 0; c < 3; c += 1) mean[c] += p[c] / points.length;
+      return mean;
     };
+    const edges = { top: edgeOf(row(0)), bottom: edgeOf(row(height - 1)), left: edgeOf(column(0)), right: edgeOf(column(width - 1)) };
+    const rowDark = (y) => uniform(row(y), y < height / 2 ? edges.top : edges.bottom);
+    const columnDark = (x) => uniform(column(x), x < width / 2 ? edges.left : edges.right);
     let top = 0;
     while (top < height / 2 && rowDark(top)) top += 1;
     let bottom = height - 1;
