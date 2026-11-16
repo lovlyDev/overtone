@@ -634,7 +634,8 @@ html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic
   -webkit-backdrop-filter: blur(40px);
   backdrop-filter: blur(40px);
 }
-#ot-page aside { padding: 28px 12px 24px 24px; border-right: 1px solid var(--ym-outline-color-primary-disabled); }
+/* Сверху над заголовком — место под кнопки «назад/вперёд» приложения, они лежат поверх страницы. */
+#ot-page aside { padding: 72px 12px 24px 24px; border-right: 1px solid var(--ym-outline-color-primary-disabled); }
 #ot-page aside h1 { margin: 0 0 20px; font: 700 28px var(--ym-font-heading, var(--ym-font-text)); letter-spacing: -0.02em; }
 .ot-page-index { display: flex; flex-direction: column; gap: 2px; }
 .ot-page-index button {
