@@ -11,14 +11,14 @@
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
     const sync = url.pathname === '/collection/sync';
     const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
-    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname)) {
+    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info')) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);
     request.signal.throwIfAborted();
     const body = ['GET', 'HEAD'].includes(method) ? '' : await request.clone().text();
     let reply = await window.overtone.api({ url: url.href, method, body });
-    if (merge || reply?.nativeIds) {
+    if (merge || reply?.nativeIds || reply?.forward) {
       let native = request;
       if (sync) {
         const data = JSON.parse(body);
@@ -52,7 +52,12 @@
       }
       const response = await original.call(this, native);
       if (!response.ok) return response;
-      reply = await window.overtone.api({ url: url.href, method, body, response: await response.clone().json() });
+      const json = await response.clone().json();
+      if (url.pathname === '/tracks' && Array.isArray(json)) {
+        ot.loudness ||= new Map();
+        for (const card of json) if (typeof card?.r128?.i === 'number') ot.loudness.set(String(card.id), card.r128.i);
+      }
+      reply = await window.overtone.api({ url: url.href, method, body, response: json });
       if (!reply) return response;
     }
     request.signal.throwIfAborted();

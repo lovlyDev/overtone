@@ -6,20 +6,20 @@ const http = require('http');
 
 module.exports = function createMedia({ soundcloud }) {
   let port = 0;
-  const cors = {
-    'access-control-allow-origin': '*',
-    'access-control-allow-headers': '*',
-    'access-control-expose-headers': 'content-length, content-range, accept-ranges',
-    'access-control-allow-private-network': 'true',
-  };
+  const APP = /^music-application:\/\//;
 
   const server = http.createServer(async (request, response) => {
+    const { origin } = request.headers;
+    if (origin && !APP.test(origin)) return response.writeHead(403).end();
+    const cors = origin
+      ? { 'access-control-allow-origin': origin, 'access-control-allow-headers': 'range', 'access-control-expose-headers': 'content-length, content-range, accept-ranges', vary: 'origin' }
+      : {};
     if (request.method === 'OPTIONS') return response.writeHead(204, cors).end();
     const id = /^\/sc\/(\d+)\.m4a/.exec(request.url || '')?.[1];
     if (!id) return response.writeHead(404, cors).end();
     let file;
     try {
-      file = await soundcloud.file(id);
+      file = await soundcloud.file(id, { urgent: true });
     } catch {
       return response.writeHead(502, cors).end();
     }

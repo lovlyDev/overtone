@@ -12,6 +12,10 @@ const SEARCH_TTL_MS = 15 * 60 * 1000;
 const KEEP_TRACKS = 3000;
 const KEEP_SEARCHES = 30;
 const PREFETCH = 3;
+const LINK = /^(https?:\/\/)?(on\.|m\.|www\.)?(soundcloud\.com|snd\.sc)\//i;
+/** Сколько процессов yt-dlp одновременно добывают названия треков из плейлиста. */
+const META_WORKERS = 4;
+const SOUNDCLOUD_URL = /^https:\/\/(api\.|m\.|www\.)?soundcloud\.com\//;
 
 module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable = () => {} }) {
   const cacheDir = path.join(dataDir, 'cache', 'audio');
@@ -26,15 +30,21 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
   };
   const waiting = [];
   let active = 0;
-  async function download(task) {
-    if (active >= 2) await new Promise((resolve) => waiting.push(resolve));
+  /** Не больше двух загрузок сразу. Срочные (трек, который включили) встают в начало очереди. */
+  async function download(task, key, urgent) {
+    if (active >= 2) await new Promise((resolve) => (urgent ? waiting.unshift({ resolve, key }) : waiting.push({ resolve, key })));
     else active += 1;
     try {
       return await task();
     } finally {
-      if (waiting.length) waiting.shift()();
+      if (waiting.length) waiting.shift().resolve();
       else active -= 1;
     }
+  }
+  /** Загрузка уже стоит в очереди, а трек включили: переносим её в начало. */
+  function promote(key) {
+    const at = waiting.findIndex((item) => item.key === key);
+    if (at > 0) waiting.unshift(...waiting.splice(at, 1));
   }
   let state = { tracks: {}, liked: [], searches: [] };
   try {
@@ -70,13 +80,13 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
     return fs.existsSync(file) ? file : null;
   };
 
-  function run(args, timeout) {
+  function run(args, timeout, { partial = false } = {}) {
     const program = exe();
     if (!program) return Promise.reject(new Error('yt-dlp не установлен'));
     const config = getConfig();
-    if (config.scProxy && config.proxy) args.push('--proxy', config.proxy);
+    if (config.scProxy && config.proxy) args.unshift('--proxy', config.proxy);
     return new Promise((resolve, reject) => {
-      const child = spawn(program, [...args, '--no-warnings'], { windowsHide: true });
+      const child = spawn(program, ['--no-warnings', ...args], { windowsHide: true });
       let out = '';
       let problems = '';
       let expired = false;
@@ -87,8 +97,9 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
       child.on('close', (code) => {
         clearTimeout(timer);
         const failure = problems.split(/\r?\n/).find((line) => line.startsWith('ERROR'));
-        if (expired) reject(new Error('SoundCloud не ответил вовремя'));
-        else if (code !== 0 && (failure || !out.trim())) reject(new Error(/private|not available|unavailable|deleted|go\+|subscription|geo.?restrict/i.test(problems) ? 'Трек недоступен в SoundCloud' : 'Не удалось загрузить из SoundCloud. Проверьте соединение'));
+        if (expired && !(partial && out.trim())) reject(new Error('SoundCloud не ответил вовремя'));
+        else if (partial && out.trim()) resolve(out);
+        else if (code !== 0 && (failure || !out.trim())) reject(Object.assign(new Error(/private|not available|unavailable|deleted|go\+|subscription|geo.?restrict|drm protected/i.test(problems) ? 'Трек недоступен в SoundCloud' : 'Не удалось загрузить из SoundCloud. Проверьте соединение'), { detail: (failure || problems).slice(-400) }));
         else resolve(out);
       });
     });
@@ -121,30 +132,38 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
   }
 
   /** Путь к файлу трека; качает, если его ещё нет. Параллельные просьбы об одном треке ждут одну загрузку. */
-  function file(id) {
+  function file(id, { urgent = false } = {}) {
     const level = quality();
     const ready = cached(id, level);
     if (ready) return Promise.resolve(ready);
     const failure = unavailable(id);
     if (failure) return Promise.reject(new Error(failure.message));
     const key = `${id}.${level}`;
+    if (downloads.has(key) && urgent) promote(key);
     if (!downloads.has(key)) {
       const track = state.tracks[id];
       const job = download(async () => {
-        if (!track) throw new Error('трек не найден в реестре');
+        if (!track || !SOUNDCLOUD_URL.test(String(track.url))) throw new Error('трек не найден в реестре');
         fs.mkdirSync(cacheDir, { recursive: true });
         const out = await run(
-          [track.url, '-f', FORMATS[level], '-o', path.join(cacheDir, `${baseName(id, level)}.%(ext)s`), '--no-playlist', '--quiet', '--no-simulate', '--print', 'after_move:filepath'],
-          25_000,
+          ['-f', FORMATS[level], '-o', path.join(cacheDir, `${baseName(id, level)}.dl.%(ext)s`), '--no-part', '--no-playlist', '--quiet', '--no-simulate', '--print', 'after_move:filepath', '--', track.url],
+          120_000,
         );
-        const result = out.trim().split(/\r?\n/).pop();
-        if (!result || path.extname(result) !== '.m4a' || !fs.existsSync(result) || !fs.statSync(result).size) throw new Error('SoundCloud не отдал доступный AAC-трек');
+        const loaded = out.trim().split(/\r?\n/).pop();
+        if (!loaded || path.extname(loaded) !== '.m4a' || !fs.existsSync(loaded) || !fs.statSync(loaded).size) throw new Error('SoundCloud не отдал доступный AAC-трек');
+        const result = path.join(cacheDir, `${baseName(id, level)}.m4a`);
+        try {
+          fs.renameSync(loaded, result);
+        } catch {
+          fs.copyFileSync(loaded, result);
+          fs.rmSync(loaded, { force: true });
+        }
         trim();
         return result;
-      });
+      }, key, urgent);
       downloads.set(key, job.catch((error) => {
         const failure = { id: String(id), message: error.message, at: Date.now() };
-        failures.set(String(id), failure);
+        if (/недоступен|не найден/i.test(error.message)) failures.set(String(id), failure);
         onUnavailable(failure);
         throw error;
       }).finally(() => downloads.delete(key)));
@@ -157,39 +176,130 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
     for (const id of ids.slice(0, PREFETCH)) await file(id).catch(() => {});
   }
 
+  const recordOf = (item) => {
+    const id = String(item.id);
+    const page = item.webpage_url || item.url;
+    if (!/^\d+$/.test(id) || !SOUNDCLOUD_URL.test(String(page || ''))) return null;
+    return {
+      id,
+      title: item.title || '',
+      artist: item.uploader || '',
+      durationMs: Math.round((item.duration || 0) * 1000),
+      cover: cover(item.thumbnails),
+      url: page,
+    };
+  };
+
+  function remember(entry) {
+    state.searches = [entry, ...state.searches.filter((item) => item.key !== entry.key)].slice(0, KEEP_SEARCHES);
+    save();
+    prefetch(entry.ids);
+    return entry;
+  }
+  const keyFor = (known) => known?.key || Date.now().toString(16).padStart(12, '0').slice(-12);
+
+  // ---------- названия треков из плейлистов ----------
+  // Плейлист по ссылке разбирается быстро, но без названий. Их дотягиваем порциями, когда приложение
+  // просит карточки (то есть по мере прокрутки), в несколько процессов yt-dlp сразу.
+  const metaJobs = new Map();
+  function fillMeta(ids) {
+    const missing = ids.filter((id) => state.tracks[id]?.pending && !metaJobs.has(id));
+    const size = Math.ceil(missing.length / META_WORKERS);
+    for (let at = 0; at < missing.length; at += size) {
+      const group = missing.slice(at, at + size);
+      const job = run(['-j', '--skip-download', '--no-playlist', '--ignore-errors', '--', ...group.map((id) => state.tracks[id].url)], 90_000, { partial: true })
+        .then((out) => {
+          for (const line of out.split(/\r?\n/).filter(Boolean)) {
+            try {
+              const record = recordOf(JSON.parse(line));
+              if (record && state.tracks[record.id]) state.tracks[record.id] = record;
+            } catch {}
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          // Чего yt-dlp не отдал, то недоступно: показываем честно, а не пустой строкой.
+          for (const id of group) {
+            if (state.tracks[id]?.pending) state.tracks[id] = { ...state.tracks[id], pending: false, title: 'Трек недоступен', artist: 'SoundCloud', unavailable: true };
+            metaJobs.delete(id);
+          }
+          save();
+        });
+      group.forEach((id) => metaJobs.set(id, job));
+    }
+  }
+  /** Ждёт названия для указанных треков, но не дольше limit мс. */
+  async function ensure(ids, limit = 25_000) {
+    fillMeta(ids);
+    const waiting = [...new Set(ids.map((id) => metaJobs.get(id)).filter(Boolean))];
+    if (waiting.length) await Promise.race([Promise.all(waiting), new Promise((resolve) => setTimeout(resolve, limit))]);
+  }
+
+  async function openLink(text) {
+    const address = /^https?:\/\//i.test(text) ? text : `https://${text}`;
+    const known = state.searches.find((item) => item.link && item.query === address);
+    if (known && Date.now() - known.at < SEARCH_TTL_MS) return known;
+    const out = await run(['--flat-playlist', '-J', '--', address], 40_000);
+    const data = JSON.parse(out);
+    const ids = [];
+    const items = data._type === 'playlist' ? data.entries || [] : [data];
+    for (const item of items) {
+      const id = String(item.id || '').replace(/\D/g, '');
+      if (!id) continue;
+      const record = recordOf({ ...item, id, webpage_url: item.webpage_url || `https://api.soundcloud.com/tracks/${id}` });
+      if (!record) continue;
+      // В плоском списке у треков нет названий: помечаем, чтобы дотянуть позже.
+      if (!item.title) record.pending = true;
+      if (!state.tracks[id] || state.tracks[id].pending || !record.pending) state.tracks[id] = state.tracks[id] && record.pending ? state.tracks[id] : record;
+      ids.push(id);
+    }
+    if (!ids.length) throw new Error('по ссылке нет треков');
+    const title = data._type === 'playlist' ? data.title || 'Плейлист' : data.title || 'Трек';
+    const entry = remember({ key: keyFor(known), query: address, title, link: true, ids, at: Date.now() });
+    fillMeta(ids.slice(0, 40));
+    return entry;
+  }
+
+  /** Поиск без страницы результатов: для подбора замен. Треки попадают в реестр, чтобы их можно было играть. */
+  async function searchRaw(query, count = 8) {
+    const out = await run([`scsearch${count}:${query}`, '--flat-playlist', '-j'], 40_000);
+    const found = [];
+    for (const line of out.split(/\r?\n/).filter(Boolean)) {
+      try {
+        const record = recordOf(JSON.parse(line));
+        if (!record) continue;
+        state.tracks[record.id] = state.tracks[record.id] && !state.tracks[record.id].pending ? state.tracks[record.id] : record;
+        found.push(record);
+      } catch {}
+    }
+    save();
+    return found;
+  }
+
   async function search(query) {
     const text = String(query || '').trim();
     if (!text) throw new Error('пустой запрос');
-    const known = state.searches.find((item) => item.query.toLowerCase() === text.toLowerCase());
+    if (LINK.test(text)) return openLink(text);
+    const known = state.searches.find((item) => !item.link && item.query.toLowerCase() === text.toLowerCase());
     if (known && Date.now() - known.at < SEARCH_TTL_MS) return known;
     const out = await run([`scsearch30:${text}`, '--flat-playlist', '-j'], 40_000);
     const ids = [];
     for (const line of out.split(/\r?\n/).filter(Boolean)) {
       try {
-        const item = JSON.parse(line);
-        const id = String(item.id);
-        if (!/^\d+$/.test(id) || !(item.webpage_url || item.url)) continue;
-        state.tracks[id] = {
-          id,
-          title: item.title || '',
-          artist: item.uploader || '',
-          durationMs: Math.round((item.duration || 0) * 1000),
-          cover: cover(item.thumbnails),
-          url: item.webpage_url || item.url,
-        };
-        ids.push(id);
+        const record = recordOf(JSON.parse(line));
+        if (!record) continue;
+        state.tracks[record.id] = record;
+        ids.push(record.id);
       } catch {}
     }
     if (!ids.length) throw new Error('ничего не нашлось');
-    const entry = { key: known?.key || Date.now().toString(16).padStart(12, '0').slice(-12), query: text, ids, at: Date.now() };
-    state.searches = [entry, ...state.searches.filter((item) => item.key !== entry.key)].slice(0, KEEP_SEARCHES);
-    save();
-    prefetch(ids);
-    return entry;
+    return remember({ key: keyFor(known), query: text, ids, at: Date.now() });
   }
 
   return {
     search,
+    searchRaw,
+    ensure,
     file,
     prefetch,
     unavailable,

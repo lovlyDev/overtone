@@ -15,6 +15,6 @@ let s=scenario();s.fail('999');s.tick();assert.equal(s.counts().nextCalls,0,'п�
 s.fail('1234567890');s.tick();s.tick();assert.equal(s.counts().nextCalls,1,'ошибка вызывает ровно один переход');assert.match(s.notice(),/следующему/);
 s=scenario();s.state.canMoveForward=false;s.fail('1234567890');s.tick();assert.equal(s.counts().nextCalls,0);assert.equal(s.counts().pauseCalls,1);assert.match(s.notice(),/остановлено/);
 s=scenario();s.state.status='paused';s.fail('1234567890');s.tick();assert.equal(s.counts().nextCalls,0,'пауза не запускает очередь');
-s=scenario();s.tick();s.advance(36_000);s.tick();assert.equal(s.counts().nextCalls,1,'зависшая загрузка прерывается');
+s=scenario();s.tick();s.advance(91_000);s.tick();assert.equal(s.counts().nextCalls,1,"зависшая загрузка прерывается");
 s=scenario();for(let i=0;i<6;i++){s.state.entityMeta.id=String(7001234567890+i);s.fail(String(1234567890+i));s.tick()}assert.equal(s.counts().nextCalls,5);assert.equal(s.counts().pauseCalls,1,'серия ошибок останавливает очередь');
 console.log('Недоступные SC: фоновые ошибки, однократный переход, конец очереди и пауза — в порядке');

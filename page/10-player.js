@@ -36,6 +36,7 @@
       title: [meta.title, meta.version && `(${meta.version})`].filter(Boolean).join(' '),
       artist: (meta.artists || []).map((artist) => artist.name).join(', '),
       durationMs: meta.durationMs || 0,
+      loudness: typeof meta.r128?.i === 'number' ? meta.r128.i : ot.loudness?.get(String(meta.realId || meta.id)) ?? null,
       cover: meta.coverUri ? `https://${meta.coverUri.replace('%%', '400x400')}` : '',
     };
   }
@@ -55,6 +56,14 @@
     }
   };
   /** Позиция в секундах или null, если узнать не удалось. */
+  /** Состояние плеера приложения: playing, paused, stopped, loading… */
+  ot.status = () => {
+    try {
+      return String(unbox(findStore()?.sonataState?.status) || '');
+    } catch {
+      return '';
+    }
+  };
   ot.position = () => {
     try {
       const position = unbox(findStore()?.sonataState?.position);
@@ -118,7 +127,7 @@
     if (/^70\d{11}$/.test(id) && /buffer|loading|error/i.test(status)) {
       const failure = failures.get(String(Number(id) - 7000000000000));
       if (failure && Date.now() - failure.at < 60_000 && waitingSince !== Infinity) recover(id, failure.message);
-      else if (Date.now() - waitingSince > 35_000) recover(id, 'SoundCloud не ответил вовремя');
+      else if (Date.now() - waitingSince > 90_000) recover(id, 'SoundCloud не ответил вовремя');
     } else if (/playing/i.test(status) && ot.position() > 1) {
       skipped.clear();
       waitingSince = Date.now();

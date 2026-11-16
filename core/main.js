@@ -7,6 +7,9 @@ const createVideo = require('./video');
 const createSoundcloud = require('./soundcloud');
 const createMedia = require('./media');
 const createApi = require('./api');
+const createSystem = require('./system');
+const createLastfm = require('./lastfm');
+const createReplace = require('./replace');
 
 const DEFAULTS = {
   theme: 'default', // default | amoled | glass | contrast | mica | acrylic
@@ -19,7 +22,20 @@ const DEFAULTS = {
   proxy: '', // например socks5://127.0.0.1:1080, только для YouTube
   scQuality: 'high', // high = AAC 160 kbps, low = AAC 96 kbps
   scProxy: false, // пускать SoundCloud через тот же прокси
+  scReplace: true, // недоступные треки Яндекса искать и играть с SoundCloud
+  blockAds: true, // реклама, Метрика, вебвизор и чужие пиксели
+  hotkeysEnabled: true,
+  hotkeys: {}, // свои сочетания поверх стандартных (core/system.js)
+  pauseOnLock: true,
+  pauseOnHeadphones: true,
+  eqPreset: 'flat', // см. page/70-audio.js
+  eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+  loudness: 'off', // off | normal | loud | max
+  liveBackground: true, // живой фон в полноэкранном плеере, когда нет клипа
+  lastfm: { apiKey: '', secret: '', session: '', user: '', enabled: false },
 };
+/** Что можно показывать странице: без секрета и ключа сессии Last.fm. */
+const publicConfig = (config) => ({ ...config, lastfm: { apiKey: config.lastfm?.apiKey || '', user: config.lastfm?.user || '', enabled: Boolean(config.lastfm?.enabled), hasSecret: Boolean(config.lastfm?.secret) } });
 const MATERIALS = { mica: 'mica', acrylic: 'acrylic' };
 /** Страницы приложения идут по своей схеме; всё остальное (паспорт, devtools, окна других модов) не трогаем. */
 const FOREIGN = /^(https?|file|devtools|about|chrome|chrome-extension|data|blob):/;
@@ -32,11 +48,20 @@ module.exports = function start({ dataDir, root }) {
   } catch {}
   const soundcloud = createSoundcloud({ dataDir, getConfig: () => config, onUnavailable: (failure) => broadcast('overtone:sc-unavailable', failure) });
   const media = createMedia({ soundcloud });
-  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config });
+  const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
+  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace });
   const windows = new Set();
   const broadcast = (channel, data) => {
     for (const win of windows) if (!win.isDestroyed()) win.webContents.send(channel, data);
   };
+  const saveConfig = (patch) => {
+    config = { ...config, ...patch };
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+    broadcast('overtone:config', publicConfig(config));
+  };
+  const system = createSystem({ getConfig: () => config, windows, broadcast });
+  const lastfm = createLastfm({ getConfig: () => config, setConfig: saveConfig });
   const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast('overtone:video-known', video.known()) });
 
   const pageDir = path.join(root, 'page');
@@ -69,7 +94,6 @@ module.exports = function start({ dataDir, root }) {
 
   function attach(win) {
     const contents = win.webContents;
-    api.attach(contents);
     contents.on('dom-ready', () => {
       if (FOREIGN.test(contents.getURL())) return;
       windows.add(win);
@@ -90,25 +114,31 @@ module.exports = function start({ dataDir, root }) {
   }
 
   ipcMain.on('overtone:config', (event) => {
-    event.returnValue = config;
+    event.returnValue = publicConfig(config);
   });
   ipcMain.handle('overtone:set', (_event, patch) => {
-    config = { ...config, ...patch };
+    // Секрет и сессию Last.fm страница не видит, поэтому при сохранении не даём их затереть пустыми.
+    if (patch.lastfm) patch = { ...patch, lastfm: { ...config.lastfm, ...patch.lastfm, session: config.lastfm?.session || '', user: config.lastfm?.user || '', ...(patch.lastfm.secret ? { secret: patch.lastfm.secret } : { secret: config.lastfm?.secret || '' }) } };
+    saveConfig(patch);
     video.retry();
-    fs.mkdirSync(dataDir, { recursive: true });
-    fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
-    for (const win of windows) {
-      if (win.isDestroyed()) continue;
-      if ('theme' in patch) applyMaterial(win);
-      win.webContents.send('overtone:config', config);
-    }
-    return config;
+    for (const win of windows) if (!win.isDestroyed() && 'theme' in patch) applyMaterial(win);
+    if ('hotkeys' in patch || 'hotkeysEnabled' in patch) system.registerHotkeys();
+    return publicConfig(config);
   });
+  ipcMain.handle('overtone:hotkeys', () => ({ defaults: system.HOTKEYS, failed: system.failedHotkeys() }));
+  ipcMain.on('overtone:playing', (_event, state) => {
+    system.setPlaying(state?.playing);
+    lastfm.update(state);
+  });
+  ipcMain.on('overtone:pause', () => system.playerAction('PAUSE'));
+  ipcMain.handle('overtone:lastfm-login', () => lastfm.startLogin());
+  ipcMain.handle('overtone:lastfm-finish', () => lastfm.finishLogin());
+  ipcMain.handle('overtone:lastfm-logout', () => lastfm.logout());
   ipcMain.handle('overtone:video', (_event, track) => video.get(track));
   ipcMain.handle('overtone:video-reject', (_event, track) => video.reject(track));
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
   ipcMain.handle('overtone:sc-search', async (_event, query) => api.uuidOf((await soundcloud.search(query)).key));
-  ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.query })));
+  ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.link ? `${item.title} · ссылка` : item.query })));
   ipcMain.handle('overtone:api', (_event, request) => api.resolve(request));
   ipcMain.handle('overtone:video-stats', () => video.stats());
   ipcMain.handle('overtone:video-known', () => video.known());

@@ -26,8 +26,8 @@
 
   async function show() {
     if (pop) return close();
-    const input = el('input', { placeholder: 'Поиск по SoundCloud', spellcheck: false });
-    const status = el('p', { className: 'ot-sc-status', textContent: 'Введи название трека или исполнителя и нажми Enter' });
+    const input = el('input', { placeholder: 'Поиск или ссылка SoundCloud', spellcheck: false });
+    const status = el('p', { className: 'ot-sc-status', textContent: 'Название, исполнитель или ссылка на трек, плейлист, профиль. Enter — искать' });
     const recent = el('div', { className: 'ot-sc-recent ot-scroll' });
     pop = el('div', { id: 'ot-sc-pop' }, [input, status, recent]);
     document.body.append(pop);
@@ -40,11 +40,11 @@
       if (event.key !== 'Enter' || busy || !input.value.trim()) return;
       busy = true;
       status.dataset.busy = 'true';
-      status.textContent = 'Ищу на SoundCloud…';
+      status.textContent = /soundcloud\.com|snd\.sc/i.test(input.value) ? 'Открываю ссылку…' : 'Ищу на SoundCloud…';
       try {
         open(await sc.search(input.value));
       } catch (error) {
-        status.textContent = `Не получилось: ${String(error.message).replace(/^Error invoking remote method [^:]+: (Error: )?/, '')}`;
+        status.textContent = `Не получилось: ${String(error.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`;
       } finally {
         busy = false;
         status.dataset.busy = 'false';

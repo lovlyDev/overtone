@@ -389,3 +389,63 @@ html[data-ot-theme='glass'] #ot-sc-pop {
 }
 .ot-sc-recent button:hover { background: var(--ym-surface-color-primary-enabled-list); }
 @keyframes ot-wait { 50% { opacity: 0.45; } }
+
+/* ---------- Всплывающее сообщение (громкость, лайк, таймер) ---------- */
+#ot-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 104px;
+  z-index: 730;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--ym-background-color-primary-enabled-popover);
+  color: var(--ym-controls-color-secondary-text-enabled_variant);
+  font: 600 13px var(--ym-font-text);
+  box-shadow: 0 12px 32px var(--ym-shadow-menu), inset 0 0 0 1px var(--ym-outline-color-primary-disabled);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 8px);
+  transition: opacity 0.2s, transform 0.2s;
+}
+#ot-toast[data-show='true'] { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- Панель настроек: разделы ---------- */
+.ot-section {
+  margin: 18px 0 2px;
+  color: var(--ym-controls-color-primary-text-enabled);
+  font: 700 11px var(--ym-font-text);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.ot-stack { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
+.ot-note { color: var(--ym-controls-color-primary-text-enabled); font-size: 12px; max-width: 220px; text-align: end; }
+#ot-settings > span:not(:empty) { display: block; margin: -4px 0 6px; color: #ff8a7a; font-size: 12px; }
+
+/* ---------- Живой фон ---------- */
+#ot-live-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+  animation: ot-live-in 1.6s ease-out;
+}
+#ot-live { position: absolute; inset: -4%; width: 108%; height: 108%; }
+/* Затемнение снизу и по краям: текст и кнопки читаются на любой обложке. */
+#ot-live-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 42%, transparent 0 35%, rgb(0 0 0 / 0.45) 100%),
+    linear-gradient(to top, rgb(0 0 0 / 0.55), transparent 40%);
+}
+@keyframes ot-live-in { from { opacity: 0; } }
+html[data-ot-live='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
+  [class*='FullscreenPlayerDesktop_root'], [class*='FullscreenPlayerDesktop_modalContent'], [class*='FullscreenPlayerDesktopContent_root']
+) { background: transparent !important; }
+html[data-ot-live='on'] [class*='FullscreenPlayerDesktopPoster_root'] {
+  transform: scale(calc(1 + var(--ot-pulse, 0)));
+  box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.7);
+  transition: transform 0.08s linear;
+}

@@ -21,7 +21,7 @@ const toSoundcloud = (id) => String(Number(id) - BASE);
 const isSynthetic = (id) => /^70\d{11}$/.test(String(id));
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, '+00:00');
 
-module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
+module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace }) {
   const log = (...parts) => {
     if (!getConfig().debug) return;
     fs.appendFile(path.join(dataDir, 'api.log'), `${new Date().toISOString()} ${parts.join(' ')}\n`, () => {});
@@ -63,7 +63,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     const uri = coverUri(tracks.find((track) => track.cover) || {});
     return {
       owner: OWNER, playlistUuid: uuidOf(entry.key), available: true, uid: OWNER.uid, kind: parseInt(entry.key, 16),
-      title: `SoundCloud: ${entry.query}`, description: 'Результаты поиска по SoundCloud. Сердечко добавляет трек в «Мне нравится».',
+      title: entry.link ? entry.title : `SoundCloud: ${entry.query}`, description: entry.link ? 'Открыто по ссылке SoundCloud. Сердечко добавляет трек в «Мне нравится».' : 'Результаты поиска по SoundCloud. Сердечко добавляет трек в «Мне нравится».',
       revision: 1, snapshot: 1, trackCount: tracks.length, visibility: 'public', collective: false,
       created: iso(entry.at), modified: iso(entry.at), isBanner: false, isPremiere: false,
       durationMs: tracks.reduce((sum, track) => sum + track.durationMs, 0),
@@ -100,12 +100,12 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
     const infos = await Promise.all(
       ids.map(async (raw) => {
         const id = raw.split(':')[0];
-        const source = toSoundcloud(id);
+        const source = isSynthetic(id) ? toSoundcloud(id) : replace?.sourceFor(id);
         try {
-          if (!isSynthetic(id) || !soundcloud.track(source)) return { trackId: id, error: 'not-found' };
+          if (!source || !soundcloud.track(source)) return { trackId: id, error: 'not-found' };
           if (soundcloud.unavailable?.(source)) return { trackId: id, error: 'not-found' };
           // Скачивание ждёт медиасервер; запрос адреса не задерживает запуск плеера.
-          soundcloud.file(source).catch((error) => log('download failed', id, error.message));
+          soundcloud.file(source, { urgent: true }).catch((error) => log('download failed', id, error.message, error.detail || ''));
           const address = media.url(source);
           const next = soundcloud.searches().find((entry) => entry.ids.includes(source));
           if (next) soundcloud.prefetch(next.ids.slice(next.ids.indexOf(source) + 1));
@@ -150,7 +150,10 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       if (route === '/tracks' && method === 'POST') {
         const ids = idsIn(await postOf(params));
         // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
-        if (ids.length && ids.every(isSynthetic)) return fulfill(params, ids.map(richById).filter(Boolean));
+        if (ids.length && ids.every(isSynthetic)) {
+          await soundcloud.ensure?.(ids.map(toSoundcloud));
+          return fulfill(params, ids.map(richById).filter(Boolean));
+        }
         return false;
       }
       if (SYNTHETIC.test(url.pathname + url.search)) {
@@ -161,92 +164,6 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
       return false;
     }
 
-
-  function attach(contents) {
-    const wire = contents.debugger;
-    try {
-      wire.attach('1.3');
-    } catch (error) {
-      return console.error('[overtone] debugger', error.message);
-    }
-    const send = (method, params) => wire.sendCommand(method, params).catch((error) => log(method, 'failed', error.message));
-    const headerOf = (request, name) => Object.entries(request.headers).find(([key]) => key.toLowerCase() === name)?.[1];
-    // Заголовок Origin в перехваченном запросе не виден, а ответ без точного совпадения страница отвергнет.
-    const pageOrigin = () => {
-      try {
-        const page = new URL(contents.getURL());
-        return `${page.protocol}//${page.host}`;
-      } catch {
-        return '*';
-      }
-    };
-    const fulfill = (params, body, status = 200, baseHeaders) => {
-      const headers = baseHeaders
-        ? baseHeaders.filter((header) => !/^content-(length|encoding)$/i.test(header.name))
-        : [
-            { name: 'content-type', value: 'application/json; charset=utf-8' },
-            { name: 'access-control-allow-origin', value: headerOf(params.request, 'origin') || pageOrigin() },
-            { name: 'access-control-allow-credentials', value: 'true' },
-            { name: 'access-control-expose-headers', value: '*' },
-            { name: 'vary', value: 'origin' },
-          ];
-      return send('Fetch.fulfillRequest', {
-        requestId: params.requestId,
-        responseCode: status,
-        responsePhrase: status === 200 ? 'OK' : 'Not Found',
-        responseHeaders: headers,
-        body: Buffer.from(typeof body === 'string' ? body : JSON.stringify(body)).toString('base64'),
-      });
-    };
-    const postOf = async (params) => {
-      if (params.request.postData !== undefined) return params.request.postData;
-      if (!params.request.hasPostData) return '';
-      const data = await wire.sendCommand('Fetch.getRequestPostData', { requestId: params.requestId }).catch(() => null);
-      return data ? (data.base64Encoded ? Buffer.from(data.postData, 'base64').toString('utf8') : data.postData) : '';
-    };
-
-    /** Ответ сервера получен, но ещё не отдан странице. Возвращает true, если подменили. */
-    async function onResponse(params, url) {
-      if (params.request.method === 'OPTIONS' || params.responseStatusCode !== 200) return false;
-      const route = url.pathname;
-      const likedPlaylist = /\/playlist\/lk\./.test(route);
-      const tracks = route === '/tracks' && params.request.method === 'POST';
-      const summary = route.includes('/collection/playlist-with-likes');
-      if (!likedPlaylist && !tracks && !summary) return false;
-      if (!soundcloud.liked().length && !tracks) return false;
-      const requested = tracks ? idsIn(await postOf(params)) : [];
-      if (tracks && !requested.some(isSynthetic)) return false;
-      const raw = await wire.sendCommand('Fetch.getResponseBody', { requestId: params.requestId });
-      const data = JSON.parse(raw.base64Encoded ? Buffer.from(raw.body, 'base64').toString('utf8') : raw.body);
-      let next = data;
-      if (likedPlaylist) next = mergeLiked(data);
-      else if (summary && data.summary) next = { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } };
-      else if (tracks && Array.isArray(data)) {
-        const byId = new Map(data.map((track) => [String(track.id), track]));
-        next = requested.map((id) => byId.get(id) || (isSynthetic(id) ? richById(id) : null)).filter(Boolean);
-      }
-      log('merged', route);
-      return fulfill(params, next, 200, params.responseHeaders);
-    }
-
-    wire.on('message', async (_event, method, params) => {
-      if (method !== 'Fetch.requestPaused') return;
-      const response = params.responseStatusCode !== undefined || params.responseErrorReason !== undefined;
-      try {
-        const url = new URL(params.request.url);
-        if (await (response ? onResponse(params, url) : routeRequest(params, url, fulfill, postOf))) return;
-      } catch (error) {
-        log('handler', error.message);
-      }
-      send(response ? 'Fetch.continueResponse' : 'Fetch.continueRequest', { requestId: params.requestId });
-    });
-    wire.on('detach', (_event, reason) => log('detached', reason));
-    send('Fetch.enable', {
-      patterns: [
-        { urlPattern: `${API}*`, requestStage: 'Request' },
-      ],
-    });
-  }
 
   // Тот же маршрутизатор доступен странице без CDP: Electron отдаёт искусственные CDP-ответы со статусом 0.
   async function resolve(request) {
@@ -262,26 +179,44 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
         const revision = tracks.info.revision + (mine.length ? (local + 1) / 1000000 : 0);
         return { body: { ...data, values: { ...data.values, likedTracks: { ...tracks, info: { ...tracks.info, revision }, values: { ...tracks.values, liked } } } }, status: 200 };
       }
+      if (url.pathname.startsWith('/get-file-info') && Array.isArray(data.downloadInfos)) {
+        const ours = new Map(((await fileInfo(url)).downloadInfos || []).filter((info) => isSynthetic(info.trackId) || replace?.sourceFor(info.trackId)).map((info) => [String(info.trackId), info]));
+        return { body: { ...data, downloadInfos: data.downloadInfos.map((info) => ours.get(String(info?.trackId)) || info) }, status: 200 };
+      }
       if (/\/playlist\/lk\./.test(url.pathname)) return { body: mergeLiked(data), status: 200 };
       if (url.pathname.includes('/collection/playlist-with-likes') && data.summary) {
         return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };
       }
+      if (url.pathname === '/tracks' && Array.isArray(data) && !idsIn(request.body).some(isSynthetic)) {
+        const patched = replace?.patch(data);
+        return patched ? { body: patched, status: 200 } : null;
+      }
       if (url.pathname === '/tracks' && Array.isArray(data)) {
-        const byId = new Map(data.map((track) => [String(track.id), track]));
-        return { body: idsIn(request.body).map((id) => isSynthetic(id) ? richById(id) : byId.get(id)).filter(Boolean), status: 200 };
+        const byId = new Map((replace?.patch(data) || data).map((track) => [String(track.id), track]));
+        const ids = idsIn(request.body);
+        await soundcloud.ensure?.(ids.filter(isSynthetic).map(toSoundcloud));
+        return { body: ids.map((id) => isSynthetic(id) ? richById(id) : byId.get(id)).filter(Boolean), status: 200 };
       }
       return null;
+    }
+    if (url.pathname.startsWith('/get-file-info')) {
+      const ids = (url.searchParams.get('trackIds') || url.searchParams.get('trackId') || '').split(',').map((id) => id.split(':')[0]);
+      const ours = (id) => isSynthetic(id) || Boolean(replace?.sourceFor(id));
+      if (ids.length && ids.every(ours) && !ids.every(isSynthetic)) return { body: await fileInfo(url), status: 200 };
+      if (ids.some(ours) && ids.some((id) => !ours(id))) return { forward: true };
     }
     if (url.pathname === '/tracks') {
       const ids = idsIn(request.body);
       if (ids.some(isSynthetic) && !ids.every(isSynthetic)) {
         return { nativeIds: ids.filter((id) => !isSynthetic(id)) };
       }
+      // Только родные: пусть идут на сервер, а ответ посмотрим на недоступные треки.
+      if (ids.length && !ids.some(isSynthetic) && getConfig().scReplace) return { forward: true };
     }
     const params = { request: { method: request.method || 'GET', postData: request.body || '' } };
     const reply = (_params, body, status = 200) => ({ body, status });
     return (await routeRequest(params, url, reply, async () => params.request.postData)) || null;
   }
 
-  return { attach, resolve, isSynthetic, uuidOf };
+  return { resolve, isSynthetic, uuidOf };
 };

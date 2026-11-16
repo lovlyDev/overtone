@@ -67,7 +67,8 @@
       pill.addEventListener('click', () => ot.set({ theme: value }));
       return pill;
     }));
-    const proxy = el('input', { className: 'ot-input', placeholder: 'socks5://127.0.0.1:1080', value: ot.config.proxy || '' });
+    // Прокси часто с логином и паролем: на экране не показываем.
+    const proxy = el('input', { className: 'ot-input', type: 'password', placeholder: 'socks5://127.0.0.1:1080', value: ot.config.proxy || '' });
     proxy.addEventListener('change', () => ot.set({ proxy: proxy.value.trim() }));
     const cache = el('span', { textContent: '…' });
     const clear = el('button', { type: 'button', className: 'ot-pill', textContent: 'Очистить' });
@@ -84,21 +85,93 @@
       problem.textContent = text;
       problem.hidden = !text;
     });
+    const section = (title) => el('h3', { className: 'ot-section', textContent: title });
+    const audio = ot.audio || { PRESETS: {}, LOUDNESS: {} };
+    const presets = Object.entries(audio.PRESETS).map(([key, value]) => [key, value.name]);
+    const loudness = Object.entries(audio.LOUDNESS).map(([key, value]) => [key, value.name]);
+
+    // Таймер сна: не настройка, а действие, поэтому кнопки.
+    const left = ot.sleep?.left();
+    const sleepNote = left === 'track' ? 'Пауза после текущего трека.' : left ? `Пауза через ${Math.ceil(left / 60000)} мин.` : 'Выключен.';
+    const sleep = el('div', { className: 'ot-pills' }, [[15, '15'], [30, '30'], [60, '60'], [90, '90'], ['track', 'После трека'], [0, 'Выкл']].map(([value, label]) => {
+      const pill = el('button', { type: 'button', className: 'ot-pill', textContent: label });
+      pill.dataset.active = String(left === value || (value === 0 && !left));
+      pill.addEventListener('click', () => {
+        ot.sleep?.set(value);
+        render();
+      });
+      return pill;
+    }));
+
+    const keys = el('span', { textContent: '' });
+    window.overtone.hotkeys().then(({ failed }) => {
+      keys.textContent = failed.length ? `Заняты другой программой: ${failed.join(', ')}` : '';
+    });
+
+    const lastfm = ot.config.lastfm || {};
+    const apiKey = el('input', { className: 'ot-input', placeholder: 'API key', value: lastfm.apiKey || '', spellcheck: false });
+    const secret = el('input', { className: 'ot-input', type: 'password', placeholder: lastfm.hasSecret ? 'секрет сохранён' : 'Shared secret', spellcheck: false });
+    const saveKeys = () => ot.set({ lastfm: { apiKey: apiKey.value.trim(), ...(secret.value.trim() ? { secret: secret.value.trim() } : {}) } });
+    apiKey.addEventListener('change', saveKeys);
+    secret.addEventListener('change', saveKeys);
+    const lastfmNote = el('span', { className: 'ot-note', textContent: lastfm.user ? `Вход выполнен: ${lastfm.user}` : 'Ключ и секрет — на last.fm/api/account/create (бесплатно).' });
+    const step = (label, action) => {
+      const node = el('button', { type: 'button', className: 'ot-pill', textContent: label });
+      node.addEventListener('click', async () => {
+        try {
+          await action();
+        } catch (error) {
+          lastfmNote.textContent = String(error.message).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
+        }
+      });
+      return node;
+    };
+    const lastfmButtons = lastfm.user
+      ? [step('Выйти', () => window.overtone.lastfm.logout())]
+      : [
+          step('Войти', async () => {
+            await saveKeys();
+            await window.overtone.lastfm.login();
+            lastfmNote.textContent = 'Подтверди доступ в браузере, потом нажми «Готово».';
+          }),
+          step('Готово', async () => {
+            const user = await window.overtone.lastfm.finish();
+            lastfmNote.textContent = `Вход выполнен: ${user}`;
+          }),
+        ];
+
     const close = el('button', { type: 'button', className: 'ot-close', textContent: '×', ariaLabel: 'Закрыть' });
     close.addEventListener('click', toggleOpen);
     return el('div', { id: 'ot-settings' }, [
       el('header', {}, [el('b', { textContent: 'Overtone' }), close]),
+      section('Вид'),
       row('Тема', 'Mica и Acrylic работают на Windows 11.', pills),
+      row('Живой фон', 'В полноэкранном плеере, когда нет клипа: цвета обложки двигаются под музыку.', toggle('liveBackground')),
+      section('Звук'),
+      row('Эквалайзер', 'Готовые настройки звука.', select('eqPreset', presets)),
+      row('Громкость', 'Ровная — все треки одинаково громкие. Громко и Очень громко — выше 100%, без хрипа.', select('loudness', loudness)),
+      section('Видео'),
       row('Видео трека', 'В полноэкранном плеере обложка плавно сменяется клипом. Клик по экрану убирает его.', toggle('video')),
       row('Видео Яндекс Музыки', 'Фоновое видео трека, если оно у него есть.', toggle('videoYm')),
       row('Клипы с YouTube', 'Ищется, когда своего видео у трека нет.', toggle('videoYoutube')),
       row('Задержка перед клипом', 'Секунд от начала трека.', select('videoDelay', DELAYS.map((s) => [s, `${s} с`]))),
       row('Качество клипа', 'Выше качество — дольше загрузка.', select('videoHeight', HEIGHTS)),
+      section('SoundCloud'),
       row('Качество SoundCloud', 'Применяется к следующему треку.', select('scQuality', [['high', 'AAC 160'], ['low', 'AAC 96']])),
+      row('Замена недоступных', 'Серые треки Яндекса ищутся на SoundCloud и играют оттуда. Только при точном совпадении.', toggle('scReplace')),
       row('Прокси для YouTube', 'Пусто — напрямую.', proxy),
       problem,
       row('Кеш видео', '', el('div', { className: 'ot-inline' }, [cache, clear])),
       row('Не тот клип', 'Удалить клип текущего трека и больше не искать.', wrong),
+      section('Управление'),
+      row('Глобальные клавиши', 'Ctrl+Alt+P пауза, Ctrl+Alt+←/→ трек, Ctrl+Alt+L лайк, Ctrl+Alt+↑/↓ громкость. Работают в любой программе.', toggle('hotkeysEnabled')),
+      keys,
+      row('Таймер сна', sleepNote, sleep),
+      row('Пауза при блокировке', 'Win+L ставит музыку на паузу.', toggle('pauseOnLock')),
+      row('Пауза без наушников', 'Отключил наушники — музыка встала, а не заиграла на весь дом.', toggle('pauseOnHeadphones')),
+      row('Без рекламы и слежки', 'Блокирует рекламу, Яндекс Метрику и вебвизор. Рекомендации не страдают.', toggle('blockAds')),
+      section('Last.fm'),
+      row('Скробблинг', '', el('div', { className: 'ot-stack' }, [apiKey, secret, el('div', { className: 'ot-inline' }, lastfmButtons), lastfmNote])),
     ]);
   }
 
