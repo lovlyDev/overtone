@@ -24,7 +24,12 @@ for (const file of scripts) {
 }
 console.log(`Синтаксис: ${scripts.length} файлов в порядке`);
 
-const archive = process.argv[2] || path.join(process.env.LOCALAPPDATA, 'Programs', 'YandexMusic', 'resources', 'app.asar');
+const archive = process.argv[2] || path.join(process.env.LOCALAPPDATA || '', 'Programs', 'YandexMusic', 'resources', 'app.asar');
+// В GitHub Actions Яндекс Музыки нет: проверяем только синтаксис.
+if (!fs.existsSync(archive)) {
+  console.log('Патч архива: пропущен, Яндекс Музыка не установлена');
+  process.exit(0);
+}
 const copy = path.join(os.tmpdir(), 'overtone-check.asar');
 const before = asar.readHeader(archive);
 const pkg = JSON.parse(asar.readFile(archive, 'package.json').toString('utf8'));
