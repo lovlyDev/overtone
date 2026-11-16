@@ -1,0 +1,319 @@
+<!doctype html>
+<!-- Overtone © lovlyDev · https://github.com/lovlyDev/overtone · Apache-2.0 (LICENSE, NOTICE) -->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Overtone — мод для Яндекс Музыки</title>
+<meta name="description" content="SoundCloud, клипы, тексты песен, эквалайзер и темы в десктопной Яндекс Музыке. Бесплатно, с открытым кодом, для Windows 10 и 11.">
+<meta property="og:title" content="Overtone — мод для Яндекс Музыки">
+<meta property="og:description" content="SoundCloud, клипы, тексты песен, эквалайзер и темы в десктопной Яндекс Музыке.">
+<meta property="og:image" content="https://lovlydev.ru/overtone/icon.png">
+<meta name="theme-color" content="#0d0d0d">
+<link rel="icon" href="favicon.ico">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Golos+Text:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --panel: #161616;
+    --row: #1f1f1f;
+    --line: rgb(255 255 255 / 0.08);
+    --text: #fff;
+    --muted: rgb(255 255 255 / 0.56);
+    --faint: rgb(255 255 255 / 0.36);
+    --accent: #ffc800;
+    --brand: #ffb800;
+    --radius: 20px;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; scroll-padding-top: 24px; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 500 15px/1.45 'Golos Text', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; text-decoration: none; }
+  ::selection { background: var(--accent); color: #000; }
+
+  /* ---------- оболочка как в приложении ---------- */
+  .shell { display: grid; grid-template-columns: 232px 1fr; gap: 8px; padding: 8px 8px 104px; min-height: 100vh; }
+  .side { position: sticky; top: 8px; align-self: start; height: calc(100vh - 112px); display: flex; flex-direction: column; padding: 20px 12px; }
+  .brand { display: flex; align-items: center; gap: 10px; padding: 0 12px 28px; font-weight: 700; font-size: 22px; letter-spacing: -0.02em; }
+  .brand svg { width: 30px; height: 30px; }
+  .nav { display: grid; gap: 2px; }
+  .nav a { display: flex; align-items: center; gap: 14px; padding: 10px 12px; border-radius: 12px; color: var(--muted); font-weight: 600; transition: color .15s, background .15s; }
+  .nav a:hover { color: var(--text); background: var(--row); }
+  .nav a[aria-current] { color: var(--text); }
+  .nav svg { width: 22px; height: 22px; flex: none; }
+  .side-foot { margin-top: auto; padding: 0 12px; color: var(--faint); font-size: 12px; line-height: 1.5; }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 99px; background: var(--row); color: var(--text); font-size: 12px; font-weight: 600; margin-bottom: 12px; }
+  .pill i { width: 8px; height: 8px; border-radius: 50%; background: var(--brand); }
+
+  .main { background: var(--panel); border-radius: var(--radius); overflow: hidden; min-width: 0; }
+  .wrap { padding: 0 40px; max-width: 1080px; }
+
+  /* ---------- шапка как у плейлиста ---------- */
+  .head { position: relative; padding: 56px 0 40px; display: flex; gap: 32px; align-items: flex-end; }
+  .head::before {
+    content: ''; position: absolute; inset: 0 -40px; z-index: 0;
+    background: linear-gradient(180deg, rgb(255 184 0 / 0.16), transparent 85%);
+  }
+  .head > * { position: relative; }
+  .cover { width: 220px; height: 220px; flex: none; border-radius: 16px; background: #121212; display: grid; place-items: center; box-shadow: 0 24px 60px -20px rgb(0 0 0 / 0.7); }
+  .cover svg { width: 62%; height: 62%; }
+  .kind { color: var(--muted); font-weight: 600; font-size: 14px; }
+  h1 { margin: 6px 0 12px; font-size: clamp(48px, 8vw, 96px); line-height: 0.95; font-weight: 900; letter-spacing: -0.045em; }
+  .lead { margin: 0 0 24px; color: var(--muted); font-size: 16px; max-width: 520px; }
+  .lead b { color: var(--text); font-weight: 600; }
+  .actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 10px; height: 48px; padding: 0 26px 0 20px; border-radius: 99px;
+    background: var(--accent); color: #000; font-weight: 700; font-size: 15px; transition: transform .15s, background .15s;
+  }
+  .btn:hover { background: #ffd633; transform: scale(1.03); }
+  .btn:active { transform: scale(0.98); }
+  .btn svg { width: 20px; height: 20px; }
+  .round { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; background: var(--row); color: var(--text); transition: background .15s; }
+  .round:hover { background: #2b2b2b; }
+  .round svg { width: 22px; height: 22px; }
+  .meta { color: var(--faint); font-size: 13px; margin-left: 6px; }
+
+  /* ---------- разделы ---------- */
+  section { padding: 24px 0 8px; }
+  h2 { margin: 0 0 14px; font-size: 28px; font-weight: 800; letter-spacing: -0.03em; }
+  .sub { margin: -8px 0 16px; color: var(--muted); }
+
+  /* список как треклист */
+  .list { display: grid; }
+  .row { display: grid; grid-template-columns: 44px 1fr auto; gap: 16px; align-items: center; padding: 8px 12px; margin: 0 -12px; border-radius: 12px; transition: background .12s; }
+  .row:hover { background: var(--row); }
+  .art { width: 44px; height: 44px; border-radius: 8px; background: #262626; display: grid; place-items: center; color: var(--brand); }
+  .art svg { width: 22px; height: 22px; }
+  .row b { display: block; font-weight: 600; font-size: 15px; }
+  .row span { display: block; color: var(--muted); font-size: 13.5px; }
+  .tag { color: var(--faint); font-size: 13px; font-weight: 600; white-space: nowrap; }
+  .tag.sc { color: #ff7a2f; }
+
+  /* установка */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .step { background: var(--row); border-radius: 16px; padding: 20px; }
+  .step em { font-style: normal; display: block; color: var(--brand); font-weight: 800; font-size: 13px; margin-bottom: 18px; }
+  .step b { display: block; font-size: 17px; margin-bottom: 6px; }
+  .step p { margin: 0; color: var(--muted); font-size: 14px; }
+  .step a { color: var(--text); text-decoration: underline; text-decoration-color: var(--faint); text-underline-offset: 3px; }
+  .note { margin: 12px 0 0; color: var(--faint); font-size: 13px; }
+
+  /* вопросы */
+  details { border-top: 1px solid var(--line); }
+  details:last-child { border-bottom: 1px solid var(--line); }
+  summary { list-style: none; cursor: pointer; padding: 16px 0; font-weight: 600; display: flex; justify-content: space-between; gap: 16px; }
+  summary::-webkit-details-marker { display: none; }
+  summary::after { content: '+'; color: var(--faint); font-weight: 400; font-size: 22px; line-height: 1; transition: transform .2s; }
+  details[open] summary::after { transform: rotate(45deg); }
+  details p { margin: -4px 0 16px; color: var(--muted); max-width: 720px; }
+  details code { font: 500 13px/1 ui-monospace, Consolas, monospace; background: var(--row); padding: 2px 6px; border-radius: 6px; color: var(--text); }
+
+  /* что нового */
+  .news { background: var(--row); border-radius: 16px; padding: 20px 24px; }
+  .news h3 { margin: 0 0 4px; font-size: 17px; }
+  .news time { color: var(--faint); font-size: 13px; }
+  .news ul { margin: 14px 0 0; padding-left: 18px; color: var(--muted); }
+  .news li { margin: 4px 0; }
+  .news a { display: inline-block; margin-top: 12px; color: var(--text); font-weight: 600; font-size: 14px; }
+
+  footer { padding: 40px 0 36px; color: var(--faint); font-size: 13px; line-height: 1.6; }
+  footer a { color: var(--muted); text-decoration: underline; text-decoration-color: var(--line); text-underline-offset: 3px; }
+
+  /* ---------- нижняя панель как плеер ---------- */
+  .bar {
+    position: fixed; left: 8px; right: 8px; bottom: 8px; z-index: 5; height: 80px; border-radius: var(--radius);
+    background: #1c1c1c; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; padding: 0 16px;
+    box-shadow: 0 -10px 40px rgb(0 0 0 / 0.5);
+  }
+  .now { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .now .art { width: 52px; height: 52px; background: #121212; }
+  .now .art svg { width: 30px; height: 30px; }
+  .now b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .now span { display: block; color: var(--muted); font-size: 13px; }
+  .play { width: 52px; height: 52px; border-radius: 50%; background: var(--accent); color: #000; display: grid; place-items: center; transition: transform .15s; }
+  .play:hover { transform: scale(1.06); }
+  .play svg { width: 24px; height: 24px; }
+  .bar-right { justify-self: end; color: var(--faint); font-size: 13px; text-align: right; }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; padding: 0 0 96px; gap: 0; }
+    .side { position: static; height: auto; padding: 16px; flex-direction: row; align-items: center; justify-content: space-between; }
+    .brand { padding: 0; }
+    .nav, .side-foot { display: none; }
+    .main { border-radius: 0; }
+    .wrap { padding: 0 16px; }
+    .head { flex-direction: column; align-items: flex-start; gap: 20px; padding: 24px 0 28px; }
+    .head::before { inset: 0 -16px; }
+    .cover { width: 140px; height: 140px; }
+    .steps { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 40px 1fr; }
+    .row .tag { display: none; }
+    .bar { grid-template-columns: 1fr auto; height: 72px; }
+    .bar-right { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { transition: none !important; }
+    html { scroll-behavior: auto; }
+  }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="mark" viewBox="0 0 100 100"><g fill="none" stroke="currentColor" stroke-width="7" stroke-linecap="round"><circle cx="43" cy="57" r="27"/><path d="M43 17 A40 40 0 0 1 83 57"/></g></symbol>
+</svg>
+
+<div class="shell">
+  <aside class="side">
+    <a class="brand" href="#top"><svg style="color:var(--brand)"><use href="#mark"/></svg>overtone</a>
+    <nav class="nav" aria-label="Разделы">
+      <a href="#top" aria-current="page"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 5l8 6.5V19a1 1 0 0 1-1 1h-4.5v-5h-5v5H5a1 1 0 0 1-1-1z"/></svg>Главная</a>
+      <a href="#features"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 7h14M5 12h14M5 17h9"/></svg>Возможности</a>
+      <a href="#install"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></svg>Установка</a>
+      <a href="#faq"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8"/><path d="M9.8 9.6a2.3 2.3 0 0 1 4.4.9c0 1.6-2.2 1.9-2.2 3.3M12 16.6v.1"/></svg>Вопросы</a>
+      <a href="#news"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 7v5l3 2"/><circle cx="12" cy="12" r="8"/></svg>Что нового</a>
+      <a href="https://github.com/lovlyDev/overtone"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m8.5 8-4 4 4 4m7-8 4 4-4 4"/></svg>Исходный код</a>
+    </nav>
+    <div class="side-foot">
+      <span class="pill"><i></i><span data-version>Overtone 1.3.1</span></span><br>
+      Неофициальный мод. Не связан с Яндексом.
+    </div>
+  </aside>
+
+  <main class="main" id="top">
+    <div class="wrap">
+      <header class="head">
+        <div class="cover"><svg style="color:var(--brand)"><use href="#mark"/></svg></div>
+        <div>
+          <div class="kind">Мод для Яндекс Музыки на Windows</div>
+          <h1>Overtone</h1>
+          <p class="lead">SoundCloud, клипы, тексты песен, эквалайзер и темы — <b>прямо в десктопной Яндекс Музыке</b>, в её родном интерфейсе. Бесплатно и с открытым кодом.</p>
+          <div class="actions">
+            <a class="btn" href="https://github.com/lovlyDev/overtone/releases/latest/download/Overtone-Setup.exe" data-download>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></svg>Скачать
+            </a>
+            <a class="round" href="https://github.com/lovlyDev/overtone" title="Исходный код на GitHub" aria-label="Исходный код на GitHub">
+              <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a9.5 9.5 0 0 0-3 18.5c.5.1.7-.2.7-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6 0-.6 0-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.3-2.1-.2-4.3-1-4.3-4.7 0-1 .4-1.9 1-2.6-.1-.2-.4-1.2.1-2.5 0 0 .8-.3 2.6 1a9 9 0 0 1 4.8 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.5.6.7 1 1.6 1 2.6 0 3.7-2.2 4.5-4.3 4.7.3.3.6.8.6 1.6v2.4c0 .3.2.6.7.5A9.5 9.5 0 0 0 12 2.5Z"/></svg>
+            </a>
+            <span class="meta" data-meta>Windows 10 и 11 · 85 МБ</span>
+          </div>
+        </div>
+      </header>
+
+      <section id="features">
+        <h2>Что умеет</h2>
+        <div class="list">
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 18h10.5a3.5 3.5 0 0 0 .3-7A5.5 5.5 0 0 0 7.2 9.6 4.2 4.2 0 0 0 7 18Z"/></svg></div><div><b>SoundCloud внутри</b><span>Поиск, ссылки на треки, плейлисты и профили открываются обычными страницами приложения и играют в его плеере. Сердечко — и трек в «Мне нравится».</span></div><div class="tag sc">SC</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/></svg></div><div><b>Волна SoundCloud</b><span>Бесконечная подборка под твой вкус: учитывает лайки, что дослушиваешь и что пропускаешь. Три настроения — любимое, новое, популярное.</span></div><div class="tag sc">SC</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 12a8 8 0 0 1 13.7-5.6L20 8.5M20 4v4.5h-4.5M20 12a8 8 0 0 1-13.7 5.6L4 15.5M4 20v-4.5h4.5"/></svg></div><div><b>Серые треки снова играют</b><span>Если трека больше нет в Яндексе, он находится на SoundCloud — только при точном совпадении названия, исполнителя и длины.</span></div><div class="tag sc">SC</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3.5" y="5.5" width="17" height="13" rx="3"/><path d="m10.5 9.5 4 2.5-4 2.5z" fill="currentColor"/></svg></div><div><b>Клипы вместо обложки</b><span>В полноэкранном плеере обложка через несколько секунд сменяется клипом — родным видео Яндекса или клипом с YouTube. Значок у трека заранее показывает, что клип есть.</span></div><div class="tag">Видео</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 7h14M5 12h10M5 17h12"/></svg></div><div><b>Тексты песен</b><span>Синхронные тексты для треков SoundCloud и для тех треков Яндекса, где своего текста нет. Показываются в обычной панели «Текст».</span></div><div class="tag">Текст</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M6 4v16M12 4v16M18 4v16"/><circle cx="6" cy="14" r="2" fill="#262626"/><circle cx="12" cy="8" r="2" fill="#262626"/><circle cx="18" cy="15" r="2" fill="#262626"/></svg></div><div><b>Эквалайзер и громкость</b><span>Готовые настройки звука. Ровная громкость для всех треков или режим громче 100% — без хрипа.</span></div><div class="tag">Звук</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 0 16z" fill="currentColor"/></svg></div><div><b>Темы и живой фон</b><span>AMOLED, стекло с настоящим преломлением, контраст, Mica и Acrylic. В полноэкранном плеере обложка растекается по фону и дышит под бас.</span></div><div class="tag">Вид</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 12h.01M16 12h.01M6.5 6.5C9.8 5.2 14.2 5.2 17.5 6.5c1.6 2.6 2.4 5.6 2.2 9-1.4 1.1-3 1.9-4.7 2.4L14 16.2M6.5 6.5c-1.6 2.6-2.4 5.6-2.2 9 1.4 1.1 3 1.9 4.7 2.4l1-1.7"/></svg></div><div><b>Discord и Last.fm</b><span>Статус «Слушает» с обложкой и ссылкой на трек. Скробблинг в Last.fm.</span></div><div class="tag">Профиль</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8"/><path d="m6.5 6.5 11 11"/></svg></div><div><b>Без рекламы</b><span>Ни рекламы между треками, ни Яндекс Метрики.</span></div><div class="tag">Система</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="11" rx="2.5"/><path d="M7 11h.01M11 11h.01M15 11h.01M8 14.5h8"/></svg></div><div><b>Клавиши и таймер сна</b><span>Глобальные клавиши, таймер сна, пауза при блокировке экрана и когда отключаешь наушники.</span></div><div class="tag">Система</div></div>
+          <div class="row"><div class="art"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 5 6.5v5c0 4.2 2.9 7.6 7 9 4.1-1.4 7-4.8 7-9v-5z"/><path d="m9 12 2 2 4-4"/></svg></div><div><b>Сам себя чинит</b><span>Яндекс Музыка при обновлении стирает моды. Overtone возвращается сам — сразу после обновления и при входе в Windows.</span></div><div class="tag">Система</div></div>
+        </div>
+      </section>
+
+      <section id="install">
+        <h2>Установка</h2>
+        <p class="sub">Минута, одна кнопка.</p>
+        <div class="steps">
+          <div class="step"><em>01</em><b>Яндекс Музыка</b><p>Поставь приложение с <a href="https://music.yandex.ru/download/">music.yandex.ru/download</a> и хотя бы раз запусти.</p></div>
+          <div class="step"><em>02</em><b>Установщик</b><p><a href="https://github.com/lovlyDev/overtone/releases/latest/download/Overtone-Setup.exe" data-download>Скачай Overtone-Setup.exe</a> и запусти.</p></div>
+          <div class="step"><em>03</em><b>«Установить»</b><p>Установщик сам закроет Яндекс Музыку, поставит мод и откроет её снова. Настройки — кнопка Overtone под логотипом.</p></div>
+        </div>
+        <p class="note">Windows может предупредить про неизвестного издателя: у установщика нет платной подписи. «Подробнее» → «Выполнить в любом случае». Контрольная сумма — в описании релиза.</p>
+      </section>
+
+      <section id="faq">
+        <h2>Вопросы</h2>
+        <details><summary>Это безопасно?</summary><p>Код открыт целиком, установщик собирается на GitHub из этого же кода. Мод не трогает учётную запись и не отправляет твои данные никуда, кроме сервисов, которые ты сам включил: SoundCloud, YouTube, LRCLIB, Discord, Last.fm.</p></details>
+        <details><summary>Нужна ли подписка Плюс?</summary><p>Нет. SoundCloud, клипы, тексты, эквалайзер и темы работают и без неё. Что требует Плюса в самой Яндекс Музыке — требует и с модом.</p></details>
+        <details><summary>Что будет, когда Яндекс Музыка обновится?</summary><p>Мод вернётся сам. Если новая версия приложения что-то сломает, мод скажет об этом и предложит обновиться, как только выйдет исправление. Каждую ночь мод проверяется на свежей версии Яндекс Музыки.</p></details>
+        <details><summary>Клипы с YouTube не грузятся</summary><p>YouTube в России работает медленно или не работает. Укажи прокси в настройках мода, раздел «Видео». Родные видео Яндекса работают без прокси.</p></details>
+        <details><summary>Как удалить?</summary><p>«Параметры» → «Приложения» → «Установленные приложения» → «Overtone для Яндекс Музыки» → «Удалить». Яндекс Музыка вернётся к исходному виду.</p></details>
+        <details><summary>Что-то сломалось</summary><p>Напиши в <a href="https://github.com/lovlyDev/overtone/issues" style="text-decoration:underline">Issues</a> и приложи журнал <code>%APPDATA%\Overtone\installer.log</code>. Если приложение не запускается совсем — удали Overtone или поставь Яндекс Музыку с сайта поверх.</p></details>
+      </section>
+
+      <section id="news">
+        <h2>Что нового</h2>
+        <div class="news" data-news>
+          <h3>Overtone 1.3.1</h3>
+          <ul>
+            <li>После обновления мода из настроек Яндекс Музыка снова открывается сама.</li>
+            <li>Приложение работает легче: уведомления и прокрутка не дёргаются.</li>
+          </ul>
+          <a href="https://github.com/lovlyDev/overtone/releases">Все версии</a>
+        </div>
+      </section>
+
+      <footer>
+        Overtone © lovlyDev · <a href="https://github.com/lovlyDev/overtone/blob/main/LICENSE">Apache-2.0</a> — при использовании кода укажи автора и ссылку на проект.<br>
+        Неофициальный мод. Не связан с ООО «Яндекс» и SoundCloud; названия принадлежат их владельцам.
+      </footer>
+    </div>
+  </main>
+</div>
+
+<div class="bar" role="region" aria-label="Скачать">
+  <div class="now">
+    <div class="art"><svg style="color:var(--brand)"><use href="#mark"/></svg></div>
+    <div><b data-version>Overtone 1.3.1</b><span>Windows 10 и 11</span></div>
+  </div>
+  <a class="play" href="https://github.com/lovlyDev/overtone/releases/latest/download/Overtone-Setup.exe" data-download title="Скачать установщик" aria-label="Скачать установщик">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11m0 0 4.5-4.5M12 15l-4.5-4.5M5 19h14"/></svg>
+  </a>
+  <div class="bar-right" data-date></div>
+</div>
+
+<script>
+  // Версия, дата и список изменений — из последнего релиза на GitHub. Без сети страница остаётся как есть.
+  const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+  const esc = (text) => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+  fetch('https://api.github.com/repos/lovlyDev/overtone/releases/latest')
+    .then((response) => (response.ok ? response.json() : Promise.reject()))
+    .then((release) => {
+      const version = release.tag_name.replace(/^v/, '');
+      const day = new Date(release.published_at);
+      const date = `${day.getDate()} ${months[day.getMonth()]} ${day.getFullYear()}`;
+      const setup = release.assets.find((asset) => /\.exe$/.test(asset.name));
+      document.querySelectorAll('[data-version]').forEach((node) => (node.textContent = `Overtone ${version}`));
+      document.querySelector('[data-date]').textContent = `Версия от ${date}`;
+      if (setup) document.querySelector('[data-meta]').textContent = `Windows 10 и 11 · ${Math.round(setup.size / 1048576)} МБ`;
+      // Список изменений — тот же, что мод показывает в «Что нового в моде?»: верхний раздел CHANGELOG.md.
+      return fetch(`https://raw.githubusercontent.com/lovlyDev/overtone/${encodeURIComponent(release.tag_name)}/CHANGELOG.md`)
+        .then((response) => (response.ok ? response.text() : Promise.reject()))
+        .then((text) => {
+          const section = text.split(/\r?\n## /)[1] || '';
+          const items = section.split(/\r?\n/).filter((line) => /^- /.test(line)).map((line) => line.slice(2).replace(/\*\*|`/g, '')).slice(0, 10);
+          if (!items.length) return;
+          document.querySelector('[data-news]').innerHTML = `<h3>Overtone ${esc(version)}</h3><time>${date}</time><ul>${items.map((item) => `<li>${esc(item)}</li>`).join('')}</ul><a href="${esc(release.html_url)}">Подробнее о версии</a>`;
+        });
+    })
+    .catch(() => {});
+
+  // Подсветка раздела в боковом меню при прокрутке.
+  const links = [...document.querySelectorAll('.nav a[href^="#"]')];
+  const watch = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+      if (!entry.isIntersecting) continue;
+      const id = entry.target.classList.contains('head') ? 'top' : entry.target.id;
+      links.forEach((link) => link.toggleAttribute('aria-current', link.getAttribute('href') === `#${id}`));
+    }
+  }, { rootMargin: '-40% 0px -55% 0px' });
+  ['features', 'install', 'faq', 'news'].forEach((id) => watch.observe(document.getElementById(id)));
+  watch.observe(document.querySelector('.head'));
+</script>
+</body>
+</html>

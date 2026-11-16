@@ -5,7 +5,7 @@
 <h1 align="center">Overtone</h1>
 
 <p align="center">Мод для десктопной Яндекс Музыки: SoundCloud внутри, клипы, темы, эквалайзер и живой фон.<br>
-Windows 10 и 11.</p>
+Windows 10 и 11.<br><a href="https://lovlydev.ru/overtone/">lovlydev.ru/overtone</a></p>
 
 ---
 
