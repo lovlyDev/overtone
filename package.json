@@ -1,0 +1,15 @@
+{
+  "name": "overtone",
+  "version": "0.1.0",
+  "description": "Мод для десктопной Яндекс Музыки: темы, видео трека, дальше SoundCloud",
+  "private": true,
+  "license": "UNLICENSED",
+  "scripts": {
+    "install-mod": "node patcher/cli.js install",
+    "install-dev": "node patcher/cli.js install --dev",
+    "uninstall-mod": "node patcher/cli.js uninstall",
+    "status": "node patcher/cli.js status",
+    "ytdlp": "node patcher/cli.js ytdlp",
+    "check": "node tools/check.js"
+  }
+}

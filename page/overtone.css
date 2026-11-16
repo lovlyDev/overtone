@@ -1,0 +1,372 @@
+/* Overtone. Темы переключаются атрибутом data-ot-theme на <html>: один файл, вставляется один раз.
+   Темы меняют только родные переменные приложения, поэтому переживают смену вёрстки. */
+
+/* ---------- AMOLED: чистый чёрный ---------- */
+html[data-ot-theme='amoled'].ym-dark-theme,
+html[data-ot-theme='amoled'] .ym-dark-theme {
+  --ym-background-color-primary-enabled-basic: #000;
+  --ym-background-color-primary-enabled-content: #000;
+  --ym-background-color-primary-enabled-player: #000;
+  --ym-background-color-primary-enabled-popover: #0b0b0b;
+  --ym-background-color-primary-enabled-menu: rgb(8 8 8 / 0.9);
+  --ym-background-color-primary-enabled-header: rgb(0 0 0 / 0.7);
+  --ym-background-color-primary-enabled-vibe: linear-gradient(180deg, #000, #000);
+  --ym-surface-color-primary-enabled-entity: rgb(0 0 0 / 0.8);
+  --ym-outline-color-primary-disabled: rgb(255 255 255 / 0.08);
+}
+
+/* Плеер красится в цвет обложки своим стилем; в AMOLED он тоже чёрный, с тонкой рамкой. */
+html[data-ot-theme='amoled'] [class*='PlayerBarDesktopWithBackgroundProgressBar_root'] {
+  background: #000 !important;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.1);
+}
+
+/* ---------- Контраст: ярче текст, заметнее границы ---------- */
+html[data-ot-theme='contrast'].ym-dark-theme,
+html[data-ot-theme='contrast'] .ym-dark-theme {
+  --ym-controls-color-primary-text-enabled: rgb(255 255 255 / 0.8);
+  --ym-controls-color-primary-text-enabled_variant: #fff;
+  --ym-controls-color-secondary-text-enabled: rgb(255 255 255 / 0.8);
+  --ym-controls-color-secondary-default-enabled: rgb(255 255 255 / 0.16);
+  --ym-surface-color-primary-enabled-list: rgb(255 255 255 / 0.14);
+  --ym-outline-color-primary-disabled: rgb(255 255 255 / 0.24);
+  --ym-background-color-primary-enabled-content: #0a0a0a;
+  --ym-background-color-primary-enabled-popover: #1f1f1f;
+}
+html[data-ot-theme='contrast'].ym-light-theme,
+html[data-ot-theme='contrast'] .ym-light-theme {
+  --ym-controls-color-primary-text-enabled: rgb(0 0 0 / 0.8);
+  --ym-controls-color-secondary-text-enabled: rgb(0 0 0 / 0.8);
+  --ym-outline-color-primary-disabled: rgb(0 0 0 / 0.24);
+}
+
+/* ---------- Прозрачные темы: общее ---------- */
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']),
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']) body {
+  background: transparent !important;
+}
+/* Корневой блок приложения закрашен чёрным градиентом: без этого сквозь окно ничего не видно. */
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']) [class*='CommonLayout_root'] {
+  background-image: none !important;
+  background-color: transparent !important;
+}
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']).ym-dark-theme,
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']) .ym-dark-theme {
+  --ot-tint: 16 16 18;
+  --ym-background-color-primary-enabled-basic: transparent;
+  --ym-background-color-primary-enabled-vibe: linear-gradient(180deg, transparent, transparent);
+  --ym-background-color-primary-enabled-content: rgb(var(--ot-tint) / var(--ot-content));
+  --ym-background-color-primary-enabled-player: rgb(var(--ot-tint) / var(--ot-panel));
+  --ym-background-color-primary-enabled-header: rgb(var(--ot-tint) / 0.3);
+  --ym-background-color-primary-enabled-popover: rgb(26 26 28 / var(--ot-popover));
+  --ym-background-color-primary-enabled-menu: rgb(26 26 28 / var(--ot-popover));
+}
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']).ym-light-theme,
+html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic']) .ym-light-theme {
+  --ot-tint: 250 250 252;
+  --ym-background-color-primary-enabled-basic: transparent;
+  --ym-background-color-primary-enabled-vibe: linear-gradient(180deg, transparent, transparent);
+  --ym-background-color-primary-enabled-content: rgb(var(--ot-tint) / var(--ot-content));
+  --ym-background-color-primary-enabled-player: rgb(var(--ot-tint) / var(--ot-panel));
+  --ym-background-color-primary-enabled-header: rgb(var(--ot-tint) / 0.3);
+  --ym-background-color-primary-enabled-popover: rgb(246 246 248 / var(--ot-popover));
+  --ym-background-color-primary-enabled-menu: rgb(246 246 248 / var(--ot-popover));
+}
+/* Mica плотнее, Acrylic прозрачнее: сквозь него виден размытый рабочий стол. */
+html[data-ot-theme='mica'] { --ot-content: 0.58; --ot-panel: 0.62; --ot-popover: 0.94; }
+html[data-ot-theme='acrylic'] { --ot-content: 0.34; --ot-panel: 0.4; --ot-popover: 0.84; }
+html[data-ot-theme='glass'] { --ot-content: 0.26; --ot-panel: 0.3; --ot-popover: 0.5; }
+
+/* ---------- Стекло ---------- */
+#ot-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: #0b0b0d;
+  overflow: hidden;
+  pointer-events: none;
+}
+#ot-backdrop > div {
+  position: absolute;
+  inset: -12%;
+  background: center / cover no-repeat;
+  filter: blur(64px) saturate(160%) brightness(0.62);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+  will-change: opacity;
+}
+.ym-light-theme #ot-backdrop { background: #f2f2f4; }
+.ym-light-theme #ot-backdrop > div { filter: blur(64px) saturate(150%) brightness(1.15); }
+
+html[data-ot-theme='glass'] {
+  --ot-glass: rgb(30 30 34 / 0.34);
+  --ot-glass-dense: rgb(22 22 26 / 0.72);
+  --ot-glass-sheen: rgb(255 255 255 / 0.1);
+  --ot-glass-edge: rgb(255 255 255 / 0.2);
+}
+html[data-ot-theme='glass'].ym-light-theme,
+html[data-ot-theme='glass']:has(.ym-light-theme) {
+  --ot-glass: rgb(255 255 255 / 0.38);
+  --ot-glass-dense: rgb(250 250 252 / 0.74);
+  --ot-glass-sheen: rgb(255 255 255 / 0.5);
+  --ot-glass-edge: rgb(255 255 255 / 0.7);
+}
+/* Преломляющее стекло: только панели, под которыми лежит фон, а не текст.
+   Список совпадает с SELECTOR в 30-glass.js. Рамка нарисована тенью, чтобы не сдвигать вёрстку. */
+html[data-ot-theme='glass'] :is([class*='PlayerBar_root'], [class*='NavbarDesktop_root']) {
+  background: linear-gradient(135deg, var(--ot-glass-sheen), transparent 45%), var(--ot-glass) !important;
+  -webkit-backdrop-filter: var(--ot-glass-filter, blur(6px)) saturate(170%) !important;
+  backdrop-filter: var(--ot-glass-filter, blur(6px)) saturate(170%) !important;
+  box-shadow:
+    inset 0 0 0 1px var(--ot-glass-edge),
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 24px 64px -16px rgb(0 0 0 / 0.6) !important;
+}
+/* Матовое стекло: всё, что всплывает поверх текста. Сильное размытие, иначе буквы снизу мешают читать. */
+html[data-ot-theme='glass'] :is(
+  [class*='PopoverWithActions_root'], [class*='ContextMenu_root'], [class*='Dropdown_container'],
+  #ot-settings, .ot-menu
+) {
+  background: linear-gradient(135deg, var(--ot-glass-sheen), transparent 45%), var(--ot-glass-dense) !important;
+  -webkit-backdrop-filter: blur(32px) saturate(170%) !important;
+  backdrop-filter: blur(32px) saturate(170%) !important;
+  box-shadow:
+    inset 0 0 0 1px var(--ot-glass-edge),
+    inset 0 1px 0 rgb(255 255 255 / 0.28),
+    0 24px 64px -16px rgb(0 0 0 / 0.6) !important;
+}
+
+/* ---------- Видео трека ---------- */
+[data-test-id='FULLSCREEN_PLAYER_MODAL'] { isolation: isolate; }
+#ot-video {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 2.2s ease;
+}
+#ot-video video { width: 100%; height: 100%; object-fit: cover; }
+#ot-video::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(to top, rgb(0 0 0 / 0.78), rgb(0 0 0 / 0.12) 45%, rgb(0 0 0 / 0.38));
+}
+html[data-ot-video='on'] #ot-video { opacity: 1; }
+[class*='FullscreenPlayerDesktopPoster_root'] { transition: opacity 1.2s ease, transform 1.2s ease; }
+html[data-ot-video='cue'] [class*='FullscreenPlayerDesktopPoster_root'] { animation: ot-cue 1.1s ease-in-out 2; }
+html[data-ot-video='on'] [class*='FullscreenPlayerDesktopPoster_root'] { opacity: 0; transform: scale(0.96); }
+html[data-ot-video='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
+  [class*='FullscreenPlayerDesktop_root'], [class*='FullscreenPlayerDesktop_modalContent'],
+  [class*='FullscreenPlayerDesktopContent_root']
+) {
+  background: transparent !important;
+  transition: background 1.6s ease;
+}
+@keyframes ot-cue { 50% { opacity: 0.62; transform: scale(0.985); } }
+
+/* ---------- Панель настроек ---------- */
+.ot-problem {
+  margin: 0 0 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  background: rgb(255 80 60 / 0.16);
+  color: #ff8a7a;
+  font-size: 12px;
+}
+/* Кнопка живёт в боковой панели под логотипом: в полосе заголовка окно перехватывает клики. */
+#ot-button {
+  position: absolute;
+  top: 58px;
+  left: 64px;
+  z-index: 5;
+  height: 20px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ym-controls-color-primary-default-enabled, #ff0);
+  color: #000;
+  font: 700 11px var(--ym-font-text);
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  transition: transform 0.15s;
+}
+#ot-button:hover { transform: scale(1.06); }
+#ot-settings {
+  position: fixed;
+  left: 228px;
+  top: 48px;
+  z-index: 711;
+  -webkit-app-region: no-drag;
+  width: 440px;
+  max-height: calc(100vh - 200px);
+  overflow: auto;
+  padding: 16px 20px;
+  border-radius: 20px;
+  background: var(--ym-background-color-primary-enabled-popover);
+  color: var(--ym-controls-color-secondary-text-enabled_variant);
+  font: 14px var(--ym-font-text);
+  box-shadow: 0 16px 48px var(--ym-shadow-modal-xl);
+}
+#ot-settings header { display: flex; justify-content: space-between; align-items: center; font-size: 18px; margin-bottom: 8px; }
+.ot-close { border: 0; background: none; color: inherit; font-size: 22px; cursor: pointer; }
+.ot-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 10px 0; }
+.ot-row-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ot-row-text span { color: var(--ym-controls-color-primary-text-enabled); font-size: 12px; }
+.ot-pills { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 260px; }
+.ot-inline { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.ot-pill, .ot-input {
+  border: 1px solid var(--ym-controls-color-secondary-default-enabled);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 6px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ot-input { width: 200px; cursor: text; }
+.ot-pill[data-active='true'] { background: var(--ym-controls-color-primary-default-enabled); border-color: transparent; color: #000; }
+.ot-toggle { appearance: none; flex: none; width: 40px; height: 24px; border-radius: 999px; background: var(--ym-controls-color-secondary-default-enabled); position: relative; cursor: pointer; transition: background 0.2s; }
+.ot-toggle::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform 0.2s; }
+.ot-toggle:checked { background: var(--ym-controls-color-primary-default-enabled); }
+.ot-toggle:checked::after { transform: translateX(16px); background: #000; }
+
+/* ---------- Скроллбар: тонкая полоска, под курсором толще ---------- */
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar { width: 12px; height: 12px; }
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-track,
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-corner { background: transparent; }
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-button { display: none; }
+/* Полоса не доходит до скруглённых углов панели, иначе торчит за край. */
+#ot-settings::-webkit-scrollbar-track { margin-block: 18px; }
+.ot-menu::-webkit-scrollbar-track { margin-block: 12px; }
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-thumb {
+  border: 4.5px solid transparent; /* видимая толщина 3px */
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.28) padding-box;
+}
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-thumb:hover,
+:is(#ot-settings, .ot-menu, .ot-scroll)::-webkit-scrollbar-thumb:active {
+  border-width: 2.5px; /* 7px */
+  background: rgb(255 255 255 / 0.5) padding-box;
+}
+
+/* ---------- Выпадающий список ---------- */
+.ot-dropdown {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--ym-controls-color-secondary-default-enabled);
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 6px 10px 6px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.ot-dropdown svg { width: 14px; height: 14px; opacity: 0.7; transition: transform 0.2s; }
+.ot-dropdown[aria-expanded='true'] svg { transform: rotate(180deg); }
+.ot-menu {
+  position: fixed;
+  z-index: 720;
+  min-width: 120px;
+  max-height: 260px;
+  overflow: auto;
+  padding: 6px;
+  border-radius: 16px;
+  background: var(--ym-background-color-primary-enabled-popover);
+  color: var(--ym-controls-color-secondary-text-enabled_variant);
+  font: 14px var(--ym-font-text);
+  box-shadow: 0 12px 32px var(--ym-shadow-menu), inset 0 0 0 1px var(--ym-outline-color-primary-disabled);
+  animation: ot-pop 0.14s ease-out;
+}
+.ot-menu button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 12px;
+  cursor: pointer;
+  text-align: start;
+}
+.ot-menu button:hover { background: var(--ym-surface-color-primary-enabled-list); }
+.ot-menu button[aria-selected='true']::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ym-controls-color-primary-default-enabled);
+}
+@keyframes ot-pop { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+
+/* ---------- Значок клипа у трека ---------- */
+.ot-clip {
+  display: inline-flex;
+  flex: none;
+  margin-inline-start: 6px;
+  vertical-align: middle;
+  color: var(--ym-controls-color-primary-default-enabled, #ff0);
+}
+.ot-clip svg { display: block; height: 13px; width: auto; }
+
+/* ---------- SoundCloud ---------- */
+.ot-sc-navicon { display: inline-flex; width: 24px; height: 24px; }
+.ot-sc-navicon svg { width: 100%; height: 100%; }
+#ot-sc-nav a { cursor: pointer; }
+#ot-sc-pop {
+  position: fixed;
+  z-index: 715;
+  width: 340px;
+  padding: 12px;
+  border-radius: 20px;
+  background: var(--ym-background-color-primary-enabled-popover);
+  color: var(--ym-controls-color-secondary-text-enabled_variant);
+  font: 14px var(--ym-font-text);
+  box-shadow: 0 16px 48px var(--ym-shadow-modal-xl), inset 0 0 0 1px var(--ym-outline-color-primary-disabled);
+  animation: ot-pop 0.14s ease-out;
+}
+html[data-ot-theme='glass'] #ot-sc-pop {
+  background: linear-gradient(135deg, var(--ot-glass-sheen), transparent 45%), var(--ot-glass-dense);
+  -webkit-backdrop-filter: blur(32px) saturate(170%);
+  backdrop-filter: blur(32px) saturate(170%);
+}
+#ot-sc-pop input {
+  width: 100%;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--ym-controls-color-secondary-default-enabled);
+  color: inherit;
+  font: inherit;
+  padding: 0 16px;
+  outline: none;
+}
+#ot-sc-pop input:focus { box-shadow: inset 0 0 0 1.5px var(--ym-controls-color-primary-default-enabled); }
+.ot-sc-status { margin: 10px 6px 2px; color: var(--ym-controls-color-primary-text-enabled); font-size: 13px; }
+.ot-sc-status[data-busy='true'] { animation: ot-wait 1s ease-in-out infinite; }
+.ot-sc-recent { display: flex; flex-direction: column; margin-top: 8px; max-height: 240px; overflow: auto; }
+.ot-sc-recent button {
+  flex: none;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 8px 10px;
+  text-align: start;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ot-sc-recent button:hover { background: var(--ym-surface-color-primary-enabled-list); }
+@keyframes ot-wait { 50% { opacity: 0.45; } }
