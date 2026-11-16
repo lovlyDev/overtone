@@ -56,17 +56,23 @@ function assertWritable(exe) {
   if (state === 'denied') throw new Error('Яндекс Музыка установлена для всех пользователей. Запусти установщик от имени администратора.');
 }
 
-function isRunning() {
+/**
+ * Запущено ли приложение — по файлу exe: у работающей программы Windows его не даёт открыть на запись.
+ * Список процессов (tasklist) не годится: он выводит имена в кодировке консоли, и кириллица в
+ * «Яндекс Музыка.exe» не совпадает. Приложение, свёрнутое в трей, так тоже видно.
+ */
+function isRunning(app) {
   try {
-    const out = execFileSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8', windowsHide: true });
-    return /"Яндекс Музыка\.exe"|"Yandex Music\.exe"/i.test(out);
+    return writable((app || locate()).exe) === 'busy';
   } catch {
     return false;
   }
 }
-function closeApp() {
+/** Закрывает все процессы из папки приложения, включая свёрнутое в трей. */
+function closeApp(app) {
+  const dir = (app || locate()).dir.replace(/'/g, "''");
   try {
-    execFileSync('taskkill', ['/F', '/T', '/IM', 'Яндекс Музыка.exe'], { stdio: 'ignore', windowsHide: true });
+    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith('${dir}\\', 'OrdinalIgnoreCase') } | Stop-Process -Force`], { stdio: 'ignore', windowsHide: true });
   } catch {}
 }
 

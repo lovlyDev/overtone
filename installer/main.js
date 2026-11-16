@@ -30,12 +30,12 @@ function bundled() {
   try {
     const sea = require('node:sea');
     const data = JSON.parse(sea.getAsset('app.json', 'utf8'));
-    return { list: () => Object.keys(data.files), read: (name) => Buffer.from(data.files[name], 'base64'), version: data.version, ui: sea.getAsset('ui.html', 'utf8') };
+    return { list: () => Object.keys(data.files), read: (name) => Buffer.from(data.files[name], 'base64'), version: data.version, ui: sea.getAsset('ui.html', 'utf8'), icon: Buffer.from(sea.getAsset('icon.png')) };
   } catch {
     // Запуск без сборки (node installer/main.js): берём файлы из проекта.
     const root = path.resolve(__dirname, '..');
     const source = lib.diskSource(root);
-    return { ...source, version: JSON.parse(source.read('package.json')).version, ui: fs.readFileSync(path.join(root, 'installer', 'ui.html'), 'utf8') };
+    return { ...source, version: JSON.parse(source.read('package.json')).version, ui: fs.readFileSync(path.join(root, 'installer', 'ui.html'), 'utf8'), icon: fs.readFileSync(path.join(root, 'assets', 'logo', 'icon-256.png')) };
   }
 }
 const source = bundled();
@@ -121,15 +121,15 @@ const launch = (app) => spawn(app.exe, [], { detached: true, stdio: 'ignore' }).
 
 async function waitClosed(app, seconds) {
   for (let i = 0; i < seconds; i += 1) {
-    if (!lib.isRunning() && lib.writable(app.exe) === 'ok') return true;
+    if (!lib.isRunning(app) && lib.writable(app.exe) === 'ok') return true;
     await wait(1000);
   }
   return false;
 }
 async function closeForWork(app) {
-  if (!lib.isRunning()) return;
-  lib.closeApp();
-  if (!(await waitClosed(app, 15))) throw new Error('Не получилось закрыть Яндекс Музыку. Закрой её из трея и нажми ещё раз.');
+  if (!lib.isRunning(app)) return;
+  lib.closeApp(app);
+  if (!(await waitClosed(app, 20))) throw new Error('Не получилось закрыть Яндекс Музыку. Закрой её из трея (правой кнопкой по значку → Выход) и нажми ещё раз. Если не помогло — файл держит антивирус, перезагрузи компьютер.');
 }
 
 // ---------- действия ----------
@@ -188,9 +188,9 @@ async function repair() {
           await wait(5000);
           continue;
         }
-        const wasRunning = lib.isRunning();
+        const wasRunning = lib.isRunning(app);
         if (wasRunning) {
-          lib.closeApp();
+          lib.closeApp(app);
           await waitClosed(app, 15);
         }
         if (lib.writable(app.exe) === 'ok') {
@@ -221,7 +221,7 @@ function info() {
   let installed = false;
   try {
     const app = lib.locate();
-    ym = { version: lib.packageOf(app.archive).version, running: lib.isRunning() };
+    ym = { version: lib.packageOf(app.archive).version, running: lib.isRunning(app) };
     installed = lib.isPatched(app) && fs.existsSync(path.join(lib.DATA, 'app'));
   } catch {}
   let installedVersion = '';
@@ -259,6 +259,10 @@ function gui() {
       response.end(typeof body === 'string' ? body : JSON.stringify(body));
     };
     if (url.pathname === '/') return url.searchParams.get('t') === token ? send(200, source.ui, 'text/html; charset=utf-8') : send(403, {});
+    if (url.pathname === '/icon.png') {
+      response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
+      return response.end(source.icon);
+    }
     // Всё остальное — только со страницы установщика: у чужих страниц нет ключа.
     if (request.headers['x-overtone'] !== token) return send(403, {});
     let body = '';
@@ -302,7 +306,20 @@ function gui() {
       spawn('explorer', [address], { detached: true, stdio: 'ignore' }).unref();
     } else {
       const profile = path.join(require('os').tmpdir(), 'overtone-installer');
-      spawn(browser, [`--app=${address}`, `--user-data-dir=${profile}`, '--window-size=460,640', '--no-first-run', '--no-default-browser-check', '--disable-features=Translate'], { detached: true, stdio: 'ignore' }).unref();
+      const preferences = path.join(profile, 'Default', 'Preferences');
+      try {
+        fs.mkdirSync(path.dirname(preferences), { recursive: true });
+        fs.writeFileSync(preferences, JSON.stringify({ signin: { allowed: false, allowed_on_next_startup: false }, sync: { requested: false }, browser: { has_seen_welcome_page: true, show_home_button: false } }));
+      } catch {}
+      spawn(browser, [
+        `--app=${address}`,
+        `--user-data-dir=${profile}`,
+        '--window-size=460,640',
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-sync',
+        '--disable-features=msImplicitSignin,msEdgeSyncConsent,msSigninPromo,Translate,msUndersideButton',
+      ], { detached: true, stdio: 'ignore' }).unref();
     }
   });
   // Окно закрыли — выходим (но не посреди установки).

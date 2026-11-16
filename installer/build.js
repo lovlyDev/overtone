@@ -44,7 +44,7 @@ const config = {
   output: path.join(dist, 'sea-prep.blob'),
   disableExperimentalSEAWarning: true,
   useCodeCache: false,
-  assets: { 'app.json': path.join(dist, 'app.json'), 'ui.html': path.join(root, 'installer', 'ui.html') },
+  assets: { 'app.json': path.join(dist, 'app.json'), 'ui.html': path.join(root, 'installer', 'ui.html'), 'icon.png': path.join(root, 'assets', 'logo', 'icon-256.png') },
 };
 fs.writeFileSync(path.join(dist, 'sea-config.json'), JSON.stringify(config));
 execFileSync(process.execPath, ['--experimental-sea-config', path.join(dist, 'sea-config.json')], { stdio: 'inherit' });
