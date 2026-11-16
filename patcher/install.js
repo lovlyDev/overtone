@@ -51,7 +51,11 @@ function writable(exe) {
   }
 }
 function assertWritable(exe) {
-  const state = writable(exe);
+  let state = writable(exe);
+  for (let i = 0; i < 30 && state === 'busy'; i += 1) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+    state = writable(exe);
+  }
   if (state === 'busy') throw new Error('Яндекс Музыка запущена. Закрой её полностью, в том числе из трея, и повтори.');
   if (state === 'denied') throw new Error('Яндекс Музыка установлена для всех пользователей. Запусти установщик от имени администратора.');
 }
@@ -118,6 +122,23 @@ function closeApp(app) {
   return foreign;
 }
 
+/**
+ * Делает действие с файлом приложения, повторяя его, пока файл занят. Сразу после закрытия программы
+ * Windows ещё несколько секунд держит её exe, а антивирус любит проверить его именно в этот момент.
+ */
+function retry(action, seconds = 20) {
+  const until = Date.now() + seconds * 1000;
+  for (;;) {
+    try {
+      return action();
+    } catch (error) {
+      if (!['EBUSY', 'EPERM', 'EACCES'].includes(error.code) || Date.now() > until) throw error;
+      // Синхронная пауза на 300 мс без нагрузки на процессор.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+    }
+  }
+}
+
 /** Меняет в exe зашитый хеш заголовка архива; длина строки не меняется. */
 function swapHash(exe, from, to) {
   if (from === to) return;
@@ -125,7 +146,7 @@ function swapHash(exe, from, to) {
   const at = bytes.indexOf(Buffer.from(from, 'latin1'));
   if (at < 0) throw new Error('В exe не найден хеш app.asar: эта версия Яндекс Музыки устроена иначе. Нужна новая версия Overtone.');
   bytes.write(to, at, 'latin1');
-  fs.writeFileSync(exe, bytes);
+  retry(() => fs.writeFileSync(exe, bytes));
 }
 
 const packageOf = (archive) => JSON.parse(asar.readFile(archive, 'package.json').toString('utf8'));
@@ -151,7 +172,7 @@ function patch(app, source) {
   });
   try {
     swapHash(app.exe, before, after);
-    fs.renameSync(patched, app.archive);
+    retry(() => fs.renameSync(patched, app.archive));
   } catch (error) {
     fs.rmSync(patched, { force: true });
     try {
@@ -167,7 +188,7 @@ function unpatch(app) {
   if (!isPatched(app)) return false;
   if (!fs.existsSync(app.backup)) throw new Error('Нет резервной копии app.asar. Переустанови Яндекс Музыку с music.yandex.ru/download.');
   swapHash(app.exe, asar.readHeader(app.archive).hash, asar.readHeader(app.backup).hash);
-  fs.copyFileSync(app.backup, app.archive);
+  retry(() => fs.copyFileSync(app.backup, app.archive));
   fs.rmSync(app.backup, { force: true });
   return true;
 }

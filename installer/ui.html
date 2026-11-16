@@ -76,7 +76,8 @@
   .chip { padding: 4px 10px; border-radius: 999px; background: rgb(0 0 0 / 0.35); -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px); font: 500 12px var(--font); }
 
   /* ---------- Основная часть ---------- */
-  main { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 24px; overflow: auto; }
+  main { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 0 24px; overflow: auto; scrollbar-width: none; }
+  main::-webkit-scrollbar { display: none; }
   .title { margin: 4px 0 4px; font: 700 22px/1.2 var(--font-head); letter-spacing: -0.01em; }
   .lead { margin: 0 0 14px; color: var(--text-2); }
 
@@ -144,6 +145,9 @@
   body:not([data-screen='home']) .brand { gap: 10px; }
   body:not([data-screen='home']) .brand h1 { font-size: 28px; }
   body:not([data-screen='home']) .chip { display: none; }
+
+  body[data-failed='true'] .step { padding-block: 5px; }
+  body[data-failed='true'] .step[data-state='wait'] { display: none; }
 
   [hidden] { display: none !important; }
   .screen { display: none; flex-direction: column; animation: fade .25s; }
@@ -311,6 +315,7 @@
       $('error').hidden = false;
       $('work-title').textContent = 'Не получилось';
       $('work-lead').textContent = 'Ничего не сломалось: Яндекс Музыка осталась как была.';
+      document.body.dataset.failed = 'true';
       $('log').hidden = false;
       action = 'retry';
       return button('Попробовать ещё раз');
@@ -335,6 +340,7 @@
     show('work');
     document.body.dataset.busy = 'true';
     $('error').hidden = true;
+    delete document.body.dataset.failed;
     $('log').hidden = true;
     $('remove').hidden = true;
     $('work-title').textContent = kind === 'uninstall' ? 'Удаляю' : 'Устанавливаю';
