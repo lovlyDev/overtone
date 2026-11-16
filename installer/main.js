@@ -56,8 +56,9 @@ async function step(label, action, { soft = false, note } = {}) {
   const entry = { label, state: 'run' };
   job.steps.push(entry);
   try {
-    const result = await action();
+    const result = await action((note) => (entry.note = note));
     entry.state = 'ok';
+    delete entry.note;
     log(`ok: ${label}`);
     return result;
   } catch (error) {
@@ -126,16 +127,26 @@ async function waitClosed(app, seconds) {
   }
   return false;
 }
-async function closeForWork(app) {
+async function closeForWork(app, note = () => {}) {
   if (!lib.isRunning(app)) return;
-  lib.closeApp(app);
-  if (!(await waitClosed(app, 20))) throw new Error('Не получилось закрыть Яндекс Музыку. Закрой её из трея (правой кнопкой по значку → Выход) и нажми ещё раз. Если не помогло — файл держит антивирус, перезагрузи компьютер.');
+  const foreign = new Map();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    note(attempt ? 'ещё раз…' : '');
+    for (const item of lib.closeApp(app)) foreign.set(item.pid, item.name);
+    if (await waitClosed(app, 6)) return;
+  }
+  const who = [...new Set(foreign.values())].filter(Boolean);
+  throw new Error(
+    who.length
+      ? `Файл Яндекс Музыки сейчас держит «${who.join('», «')}». Закрой эту программу и нажми «Попробовать ещё раз».`
+      : 'Не получилось закрыть Яндекс Музыку. Перезагрузи компьютер и запусти установщик снова.',
+  );
 }
 
 // ---------- действия ----------
 async function install() {
   const app = lib.locate();
-  await step('Закрываю Яндекс Музыку', () => closeForWork(app));
+  await step('Закрываю Яндекс Музыку', (note) => closeForWork(app, note));
   await step('Ставлю загрузчик', () => refreshBoot(app));
   await step('Копирую файлы мода', () => {
     lib.deploy(source);
@@ -148,7 +159,7 @@ async function install() {
 
 async function uninstall({ wipe = false } = {}) {
   const app = lib.locate();
-  await step('Закрываю Яндекс Музыку', () => closeForWork(app));
+  await step('Закрываю Яндекс Музыку', (note) => closeForWork(app, note));
   await step('Возвращаю Яндекс Музыку как было', () => lib.unpatch(app));
   await step('Убираю автопочинку', () => unregisterSystem());
   await step(wipe ? 'Удаляю файлы, настройки и кеш' : 'Удаляю файлы мода', () => {
@@ -240,7 +251,6 @@ function run(kind, task) {
   job = { kind, running: true, steps: [], error: null };
   task()
     .then((result) => {
-      if (kind === 'install' && result) launch(result);
     })
     .catch((error) => {
       job.error = error.message;
@@ -259,6 +269,18 @@ function gui() {
       response.end(typeof body === 'string' ? body : JSON.stringify(body));
     };
     if (url.pathname === '/') return url.searchParams.get('t') === token ? send(200, source.ui, 'text/html; charset=utf-8') : send(403, {});
+    if (url.pathname.startsWith('/ym/')) {
+      const name = url.pathname.slice(4);
+      const types = { woff2: 'font/woff2', png: 'image/png', svg: 'image/svg+xml' };
+      const type = types[name.split('.').pop()];
+      let bytes = null;
+      try {
+        if (type && /^(fonts\/[\w-]+\.woff2|favicon-64x64\.png|favicon\.svg)$/.test(name)) bytes = lib.asar.readFile(lib.locate().archive, `app/${name}`);
+      } catch {}
+      if (!bytes) return send(404, {});
+      response.writeHead(200, { 'content-type': type, 'cache-control': 'max-age=3600' });
+      return response.end(bytes);
+    }
     if (url.pathname === '/icon.png') {
       response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'max-age=3600' });
       return response.end(source.icon);
@@ -289,6 +311,12 @@ function gui() {
           else if (target) spawn('explorer', [target], { detached: true, stdio: 'ignore' }).unref();
           return send(200, {});
         }
+        case '/api/launch':
+          try {
+            launch(lib.locate());
+          } catch {}
+          send(200, {});
+          return setTimeout(() => process.exit(0), 300);
         case '/api/quit':
           send(200, {});
           return setTimeout(() => process.exit(0), 200);
@@ -314,7 +342,7 @@ function gui() {
       spawn(browser, [
         `--app=${address}`,
         `--user-data-dir=${profile}`,
-        '--window-size=460,640',
+        '--window-size=480,700',
         '--no-first-run',
         '--no-default-browser-check',
         '--disable-sync',

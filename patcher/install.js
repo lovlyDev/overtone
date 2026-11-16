@@ -68,12 +68,54 @@ function isRunning(app) {
     return false;
   }
 }
-/** Закрывает все процессы из папки приложения, включая свёрнутое в трей. */
-function closeApp(app) {
-  const dir = (app || locate()).dir.replace(/'/g, "''");
+// Restart Manager Windows: кто держит файл. Тот же механизм, что спрашивает «закрыть программы?»
+// при установке обычных программ; права администратора не нужны.
+const LOCKERS_CS = "using System;\nusing System.Runtime.InteropServices;\npublic static class OvertoneLockers {\n  [StructLayout(LayoutKind.Sequential)] struct UniqueProcess { public int Pid; public System.Runtime.InteropServices.ComTypes.FILETIME Start; }\n  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)] struct ProcessInfo {\n    public UniqueProcess Process;\n    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string AppName;\n    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string ServiceName;\n    public int AppType; public uint AppStatus; public uint SessionId; [MarshalAs(UnmanagedType.Bool)] public bool Restartable;\n  }\n  [DllImport(\"rstrtmgr.dll\", CharSet = CharSet.Unicode)] static extern int RmStartSession(out uint handle, int flags, string key);\n  [DllImport(\"rstrtmgr.dll\")] static extern int RmEndSession(uint handle);\n  [DllImport(\"rstrtmgr.dll\", CharSet = CharSet.Unicode)] static extern int RmRegisterResources(uint handle, uint files, string[] names, uint apps, IntPtr unique, uint services, string[] serviceNames);\n  [DllImport(\"rstrtmgr.dll\")] static extern int RmGetList(uint handle, out uint needed, ref uint count, [In, Out] ProcessInfo[] list, ref uint reasons);\n  public static string Find(string path) {\n    uint handle; if (RmStartSession(out handle, 0, Guid.NewGuid().ToString()) != 0) return \"\";\n    try {\n      if (RmRegisterResources(handle, 1, new[] { path }, 0, IntPtr.Zero, 0, null) != 0) return \"\";\n      uint needed = 0, count = 0, reasons = 0;\n      int result = RmGetList(handle, out needed, ref count, null, ref reasons);\n      if (result != 234 || needed == 0) return \"\";\n      var list = new ProcessInfo[needed]; count = needed;\n      if (RmGetList(handle, out needed, ref count, list, ref reasons) != 0) return \"\";\n      var text = new System.Text.StringBuilder();\n      for (int i = 0; i < count; i++) text.Append(list[i].Process.Pid).Append('\\t').Append(list[i].AppName).Append('\\n');\n      return text.ToString();\n    } finally { RmEndSession(handle); }\n  }\n}";
+
+/** Процессы, которые держат файл: [{ pid, name }]. */
+function lockers(file) {
+  const script = [
+    '[Console]::OutputEncoding = [System.Text.Encoding]::UTF8',
+    `Add-Type -TypeDefinition @'\n${LOCKERS_CS}\n'@`,
+    `[OvertoneLockers]::Find('${file.replace(/'/g, "''")}')`,
+  ].join('\n');
   try {
-    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith('${dir}\\', 'OrdinalIgnoreCase') } | Stop-Process -Force`], { stdio: 'ignore', windowsHide: true });
+    const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(script, 'utf16le').toString('base64')], { encoding: 'utf8', windowsHide: true, timeout: 20_000, stdio: ['ignore', 'pipe', 'ignore'] });
+    return out
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map((line) => {
+        const [pid, name] = line.split('\t');
+        return { pid: Number(pid), name: name || '' };
+      })
+      .filter((item) => item.pid > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Закрывает Яндекс Музыку целиком: окно, значок в трее и служебные процессы, которые иногда
+ * переживают закрытие (их не видно в диспетчере задач на вкладке приложений, но они держат exe).
+ * Возвращает чужие программы, которые держат файл, — их закрывать не наше дело.
+ */
+function closeApp(app) {
+  const target = app || locate();
+  const dir = target.dir.replace(/'/g, "''");
+  try {
+    execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', `Get-Process | Where-Object { $_.Path -and $_.Path.StartsWith('${dir}\\', 'OrdinalIgnoreCase') } | Stop-Process -Force`], { stdio: 'ignore', windowsHide: true, timeout: 20_000 });
   } catch {}
+  const foreign = [];
+  for (const item of lockers(target.exe)) {
+    if (/яндекс музыка|yandex music/i.test(item.name)) {
+      try {
+        execFileSync('taskkill', ['/F', '/PID', String(item.pid)], { stdio: 'ignore', windowsHide: true });
+      } catch {}
+    } else {
+      foreign.push(item);
+    }
+  }
+  return foreign;
 }
 
 /** Меняет в exe зашитый хеш заголовка архива; длина строки не меняется. */
@@ -172,4 +214,4 @@ function diskSource(project) {
   return { list: () => list, read: (name) => fs.readFileSync(path.join(project, name)) };
 }
 
-module.exports = { NAME, DATA, locate, writable, isRunning, closeApp, isPatched, patch, unpatch, deploy, ytdlp, diskSource, packageOf, asar };
+module.exports = { NAME, DATA, locate, writable, isRunning, closeApp, lockers, isPatched, patch, unpatch, deploy, ytdlp, diskSource, packageOf, asar };

@@ -31,10 +31,12 @@ function readHeader(file) {
   }
 }
 
+/** name — путь внутри архива через «/»: 'package.json' или 'app/fonts/YSText-Regular.woff2'. */
 function readFile(file, name) {
   const { header, dataOffset } = readHeader(file);
-  const entry = header.files[name];
-  if (!entry) return null;
+  let entry = header;
+  for (const part of name.split('/')) entry = entry?.files?.[part];
+  if (!entry || entry.files || entry.size === undefined) return null;
   const buf = Buffer.alloc(entry.size);
   const fd = fs.openSync(file, 'r');
   try {
