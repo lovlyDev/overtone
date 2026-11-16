@@ -103,6 +103,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig }) {
         const source = toSoundcloud(id);
         try {
           if (!isSynthetic(id) || !soundcloud.track(source)) return { trackId: id, error: 'not-found' };
+          if (soundcloud.unavailable?.(source)) return { trackId: id, error: 'not-found' };
           // Скачивание ждёт медиасервер; запрос адреса не задерживает запуск плеера.
           soundcloud.file(source).catch((error) => log('download failed', id, error.message));
           const address = media.url(source);

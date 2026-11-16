@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 
-const FORMATS = { high: 'hls_aac_160k/bestaudio', low: 'hls_aac_96k/worstaudio' };
+const FORMATS = { high: 'hls_aac_160k/hls_aac_96k', low: 'hls_aac_96k/hls_aac_160k' };
 const BITRATE = { high: 160, low: 96 };
 const CACHE_LIMIT = 2 * 1024 * 1024 * 1024;
 const SEARCH_TTL_MS = 15 * 60 * 1000;
@@ -13,10 +13,17 @@ const KEEP_TRACKS = 3000;
 const KEEP_SEARCHES = 30;
 const PREFETCH = 3;
 
-module.exports = function createSoundcloud({ dataDir, getConfig }) {
+module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable = () => {} }) {
   const cacheDir = path.join(dataDir, 'cache', 'audio');
   const stateFile = path.join(dataDir, 'soundcloud.json');
   const downloads = new Map();
+  const failures = new Map();
+  const unavailable = (id) => {
+    const failure = failures.get(String(id));
+    if (failure && Date.now() - failure.at < 60_000) return failure;
+    failures.delete(String(id));
+    return null;
+  };
   const waiting = [];
   let active = 0;
   async function download(task) {
@@ -72,14 +79,16 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
       const child = spawn(program, [...args, '--no-warnings'], { windowsHide: true });
       let out = '';
       let problems = '';
-      const timer = setTimeout(() => child.kill(), timeout);
+      let expired = false;
+      const timer = setTimeout(() => { expired = true; child.kill(); }, timeout);
       child.stdout.on('data', (chunk) => (out += chunk));
       child.stderr.on('data', (chunk) => (problems += chunk));
-      child.on('error', reject);
-      child.on('close', () => {
+      child.on('error', () => { clearTimeout(timer); reject(new Error('Не удалось запустить yt-dlp')); });
+      child.on('close', (code) => {
         clearTimeout(timer);
         const failure = problems.split(/\r?\n/).find((line) => line.startsWith('ERROR'));
-        if (!out.trim() && failure) reject(new Error(failure.replace(/^ERROR:\s*/, '').slice(0, 200)));
+        if (expired) reject(new Error('SoundCloud не ответил вовремя'));
+        else if (code !== 0 && (failure || !out.trim())) reject(new Error(/private|not available|unavailable|deleted|go\+|subscription|geo.?restrict/i.test(problems) ? 'Трек недоступен в SoundCloud' : 'Не удалось загрузить из SoundCloud. Проверьте соединение'));
         else resolve(out);
       });
     });
@@ -95,7 +104,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
   function cached(id, level = quality()) {
     if (!fs.existsSync(cacheDir)) return null;
     const name = fs.readdirSync(cacheDir).find((item) => item === `${baseName(id, level)}.m4a`);
-    return name ? path.join(cacheDir, name) : null;
+    return name && fs.statSync(path.join(cacheDir, name)).size > 0 ? path.join(cacheDir, name) : null;
   }
 
   function trim() {
@@ -116,6 +125,8 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
     const level = quality();
     const ready = cached(id, level);
     if (ready) return Promise.resolve(ready);
+    const failure = unavailable(id);
+    if (failure) return Promise.reject(new Error(failure.message));
     const key = `${id}.${level}`;
     if (!downloads.has(key)) {
       const track = state.tracks[id];
@@ -124,14 +135,19 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
         fs.mkdirSync(cacheDir, { recursive: true });
         const out = await run(
           [track.url, '-f', FORMATS[level], '-o', path.join(cacheDir, `${baseName(id, level)}.%(ext)s`), '--no-playlist', '--quiet', '--no-simulate', '--print', 'after_move:filepath'],
-          120_000,
+          25_000,
         );
         const result = out.trim().split(/\r?\n/).pop();
-        if (!result || !fs.existsSync(result)) throw new Error('SoundCloud не отдал трек');
+        if (!result || path.extname(result) !== '.m4a' || !fs.existsSync(result) || !fs.statSync(result).size) throw new Error('SoundCloud не отдал доступный AAC-трек');
         trim();
         return result;
       });
-      downloads.set(key, job.finally(() => downloads.delete(key)));
+      downloads.set(key, job.catch((error) => {
+        const failure = { id: String(id), message: error.message, at: Date.now() };
+        failures.set(String(id), failure);
+        onUnavailable(failure);
+        throw error;
+      }).finally(() => downloads.delete(key)));
     }
     return downloads.get(key);
   }
@@ -176,6 +192,7 @@ module.exports = function createSoundcloud({ dataDir, getConfig }) {
     search,
     file,
     prefetch,
+    unavailable,
     bitrate: () => BITRATE[quality()],
     track: (id) => state.tracks[id] || null,
     searches: () => state.searches,

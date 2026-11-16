@@ -59,6 +59,11 @@
     // Конструктор Request забирает поток тела у исходного Request.
     // После проверки передаём дальше уже созданный объект, иначе родная порция остаётся без тела.
     if (!reply) return original.call(this, request);
+    for (const info of reply.body?.downloadInfos || [reply.body?.downloadInfo]) {
+      if (info?.error && /^70\d{11}$/.test(String(info.trackId))) {
+        ot.emit('sc-unavailable', { id: String(Number(info.trackId) - 7000000000000), message: 'Трек недоступен в SoundCloud', at: Date.now() });
+      }
+    }
     return new Response(typeof reply.body === 'string' ? reply.body : JSON.stringify(reply.body), {
       status: reply.status,
       headers: { 'content-type': 'application/json; charset=utf-8' },

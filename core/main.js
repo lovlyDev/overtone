@@ -30,7 +30,7 @@ module.exports = function start({ dataDir, root }) {
   try {
     config = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(configFile, 'utf8')) };
   } catch {}
-  const soundcloud = createSoundcloud({ dataDir, getConfig: () => config });
+  const soundcloud = createSoundcloud({ dataDir, getConfig: () => config, onUnavailable: (failure) => broadcast('overtone:sc-unavailable', failure) });
   const media = createMedia({ soundcloud });
   const api = createApi({ dataDir, soundcloud, media, getConfig: () => config });
   const windows = new Set();

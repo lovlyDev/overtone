@@ -321,6 +321,21 @@ html[data-ot-video='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
 .ot-clip svg { display: block; height: 13px; width: auto; }
 
 /* ---------- SoundCloud ---------- */
+#ot-sc-notice {
+  position: fixed;
+  z-index: 750;
+  bottom: 104px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: min(560px, calc(100vw - 48px));
+  padding: 12px 18px;
+  border-radius: 14px;
+  background: var(--ym-background-color-primary-enabled-popover, #242426);
+  color: var(--ym-controls-color-secondary-text-enabled_variant, #fff);
+  box-shadow: 0 8px 32px rgb(0 0 0 / 0.25);
+  font: 14px var(--ym-font-text);
+  pointer-events: none;
+}
 .ot-sc-navicon { display: inline-flex; width: 24px; height: 24px; }
 .ot-sc-navicon svg { width: 100%; height: 100%; }
 #ot-sc-nav a { cursor: pointer; }

@@ -27,6 +27,7 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
     sc: {
       search: (query) => ipcRenderer.invoke('overtone:sc-search', query),
       recent: () => ipcRenderer.invoke('overtone:sc-recent'),
+      onUnavailable: (listener) => ipcRenderer.on('overtone:sc-unavailable', (_event, failure) => listener(failure)),
     },
     api: (request) => ipcRenderer.invoke('overtone:api', request),
     knownVideos: () => ipcRenderer.invoke('overtone:video-known'),
