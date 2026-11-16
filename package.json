@@ -1,15 +1,24 @@
 {
   "name": "overtone",
-  "version": "0.1.0",
-  "description": "Мод для десктопной Яндекс Музыки: темы, видео трека, дальше SoundCloud",
+  "version": "1.0.0",
+  "description": "Мод для десктопной Яндекс Музыки: SoundCloud внутри, клипы, темы, эквалайзер, живой фон",
+  "author": "lovlyDev",
+  "homepage": "https://github.com/lovlyDev/overtone",
+  "repository": "github:lovlyDev/overtone",
+  "license": "Apache-2.0",
   "private": true,
-  "license": "UNLICENSED",
+  "overtone": {
+    "repo": "lovlyDev/overtone",
+    "ymTested": ["5.127.0"]
+  },
   "scripts": {
     "install-mod": "node patcher/cli.js install",
     "install-dev": "node patcher/cli.js install --dev",
     "uninstall-mod": "node patcher/cli.js uninstall",
     "status": "node patcher/cli.js status",
     "ytdlp": "node patcher/cli.js ytdlp",
-    "check": "node tools/check.js"
+    "check": "node tools/check.js",
+    "test": "node tools/check.js && node tools/headers.js --check && node tools/test-api.js && node tools/test-fetch.js && node tools/test-soundcloud.js && node tools/test-recovery.js && node tools/test-replace.js",
+    "build": "node installer/build.js"
   }
 }
