@@ -6,7 +6,7 @@
   ot.glassReady = true;
 
   /** Панели с преломлением. Тот же список в overtone.css; всплывающие окна там же сделаны матовыми. */
-  const SELECTOR = '[class*="PlayerBar_root"], [class*="NavbarDesktop_root"]';
+  const SELECTOR = '[class*="PlayerBar_root"]:not([class*="VibePlayerBar_root"]), [class*="NavbarDesktop_root"]';
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const BEZEL = 22; // ширина преломляющей полосы у края
   const MIN_SIDE = 28; // на мелких элементах преломление не видно
