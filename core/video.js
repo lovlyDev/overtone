@@ -12,6 +12,7 @@ const { spawn } = require('child_process');
 const { net } = require('electron');
 
 const MIME = { '.mp4': 'video/mp4', '.webm': 'video/webm', '.mkv': 'video/x-matroska' };
+const AUDIO_MIME = { '.m4a': 'audio/mp4', '.webm': 'audio/webm', '.opus': 'audio/ogg', '.mp3': 'audio/mpeg' };
 const YT_TIMEOUT_MS = 150_000;
 /** Сколько не повторять поиск для трека, у которого видео не нашлось. */
 const MISS_TTL_MS = 3 * 24 * 3600 * 1000;
@@ -109,7 +110,8 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       '-f', `bv*[height<=${height}][vcodec^=avc1]/bv*[height<=${height}]/b[height<=${height}]`,
       '-o', path.join(cacheDir, `${key}.yt.%(ext)s`),
       '--no-part', '--no-simulate', '--quiet', '--no-warnings',
-      '--print', 'after_move:filepath',
+      // Номер ролика печатаем вместе с файлом: по нему потом качается звук клипа для сверки с треком.
+      '--print', 'after_move:%(id)s|%(filepath)s',
       // YouTube режет скорость одного соединения: качаем куски в несколько потоков — в разы быстрее.
       '--concurrent-fragments', '8',
     ];
@@ -126,8 +128,11 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       child.on('error', reject);
       child.on('close', () => {
         clearTimeout(timer);
-        const file = out.trim().split(/\r?\n/).pop();
-        if (file && fs.existsSync(file)) return resolve({ file, kind: 'yt' });
+        const line = out.trim().split(/\r?\n/).pop() || '';
+        const split = line.indexOf('|');
+        const youtube = split > 0 ? line.slice(0, split) : known || null;
+        const file = split > 0 ? line.slice(split + 1) : line;
+        if (file && fs.existsSync(file)) return resolve({ file, kind: 'yt', ...(youtube ? { youtube } : {}) });
         // «Не нашлось» и «не достучались» различаем: второе нельзя запоминать как отсутствие клипа.
         const failure = problems.split(/\r?\n/).find((line) => line.startsWith('ERROR'));
         if (failure) reject(new Error(describe(failure)));
@@ -148,12 +153,13 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     const limit = (Number(getConfig().videoCacheMb) || 1024) * 1024 * 1024;
     const items = Object.entries(index)
       .filter(([, item]) => item.file)
-      .map(([key, item]) => ({ key, ...item, size: fs.existsSync(item.file) ? fs.statSync(item.file).size : 0 }))
+      .map(([key, item]) => ({ key, ...item, size: [item.file, item.audio].reduce((sum, file) => sum + (file && fs.existsSync(file) ? fs.statSync(file).size : 0), 0) }))
       .sort((a, b) => a.at - b.at);
     let total = items.reduce((sum, item) => sum + item.size, 0);
     for (const item of items) {
       if (total <= limit) break;
       fs.rmSync(item.file, { force: true });
+      if (item.audio) fs.rmSync(item.audio, { force: true });
       delete index[item.key];
       total -= item.size;
     }
@@ -186,6 +192,7 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     index[key] = found ? { ...index[key], ...found, at: Date.now() } : { ...index[key], miss: true, at: Date.now() };
     trim();
     saveIndex();
+    if (found?.kind === 'yt') fetchAudio(key, track).catch(() => {});
     if (found) onChange();
     return found;
   }
@@ -281,6 +288,95 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     }
   }
 
+  /**
+   * Звук клипа — для сверки с треком (page/41-sync.js). У официальных клипов почти всегда есть вступление
+   * или концовка, и без сверки клип идёт не в такт словам. Качается тот же ролик по номеру, самый лёгкий звук.
+   */
+  const audioJobs = new Map();
+  /**
+   * Клип скачан раньше, чем стал записываться номер ролика: повторяем тот же поиск без скачивания —
+   * yt-dlp выберет тот же первый подходящий ролик.
+   */
+  function findId(key, track, direct = false) {
+    const exe = ytdlpPath();
+    if (!exe || !track?.title) return Promise.resolve(null);
+    const config = getConfig();
+    const seconds = Math.round((track.durationMs || 0) / 1000);
+    const args = [
+      `ytsearch5:${[track.artist, track.title, 'official video'].filter(Boolean).join(' ')}`,
+      '--no-playlist', '--max-downloads', '1', '--simulate', '--quiet', '--no-warnings', '--print', 'id',
+    ];
+    if (seconds) args.push('--match-filter', `duration>=${Math.max(seconds - 20, 30)} & duration<=${seconds + 150}`);
+    if (config.proxy && !direct) args.push('--proxy', config.proxy);
+    return new Promise((resolve) => {
+      const child = spawn(exe, args, { windowsHide: true });
+      let out = '';
+      const timer = setTimeout(() => child.kill(), 60_000);
+      child.stdout.on('data', (chunk) => (out += chunk));
+      child.on('error', () => resolve(null));
+      child.on('close', () => {
+        clearTimeout(timer);
+        const id = out.trim().split(/\r?\n/)[0];
+        resolve(/^[\w-]{11}$/.test(id) ? id : null);
+      });
+    }).then((id) => id || (config.proxy && !direct ? findId(key, track, true) : null));
+  }
+
+  function fetchAudio(key, track) {
+    const item = index[key];
+    // Разведка уже знает номер ролика, даже если сам клип ещё не скачан.
+    if (!item || item.kind === 'ym') return Promise.resolve(null);
+    if (!item.youtube) {
+      if (item.kind !== 'yt' || !track || item.idSearched) return Promise.resolve(null);
+      item.idSearched = true;
+      return findId(key, track).then((id) => {
+        if (!id || !index[key]) return null;
+        index[key].youtube = id;
+        saveIndex();
+        return fetchAudio(key, track);
+      });
+    }
+    if (item.audio && fs.existsSync(item.audio)) return Promise.resolve(item.audio);
+    if (audioJobs.has(key)) return audioJobs.get(key);
+    const exe = ytdlpPath();
+    if (!exe) return Promise.resolve(null);
+    const config = getConfig();
+    const run = (direct) =>
+      new Promise((resolve) => {
+        const args = [
+          `https://www.youtube.com/watch?v=${item.youtube}`,
+          '--no-playlist', '-f', 'wa[ext=m4a]/ba[ext=m4a]/wa/ba',
+          // Часовые миксы не сверяем: длинный звук долго качать и разбирать.
+          '--match-filter', 'duration<1500',
+          '-o', path.join(cacheDir, `${key}.audio.%(ext)s`),
+          '--no-part', '--no-simulate', '--quiet', '--no-warnings', '--print', 'after_move:filepath',
+        ];
+        if (config.proxy && !direct) args.push('--proxy', config.proxy);
+        const child = spawn(exe, args, { windowsHide: true });
+        let out = '';
+        const timer = setTimeout(() => child.kill(), 90_000);
+        child.stdout.on('data', (chunk) => (out += chunk));
+        child.on('error', () => resolve(null));
+        child.on('close', () => {
+          clearTimeout(timer);
+          const file = out.trim().split(/\r?\n/).pop();
+          resolve(file && fs.existsSync(file) ? file : null);
+        });
+      });
+    const job = run(false)
+      .then((file) => file || (config.proxy ? run(true) : null))
+      .then((file) => {
+        if (file && index[key]) {
+          index[key].audio = file;
+          saveIndex();
+        }
+        return file;
+      })
+      .finally(() => audioJobs.delete(key));
+    audioJobs.set(key, job);
+    return job;
+  }
+
   function payload(item) {
     return { kind: item.kind, mime: MIME[path.extname(item.file)] || 'video/mp4', bytes: fs.readFileSync(item.file) };
   }
@@ -312,6 +408,7 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     reject(track) {
       const key = keyOf(track);
       if (index[key]?.file) fs.rmSync(index[key].file, { force: true });
+      if (index[key]?.audio) fs.rmSync(index[key].audio, { force: true });
       index[key] = { rejected: true, at: Date.now() };
       saveIndex();
       onChange();
@@ -340,6 +437,25 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       }
       pumpProbe();
     },
+    /** Звук клипа для сверки: { mime, bytes } или null, если клип не с YouTube или звук не скачался. */
+    async audio(track) {
+      if (!track) return null;
+      const key = keyOf(track);
+      const file = await fetchAudio(key, track).catch(() => null);
+      if (!file) return null;
+      return { mime: AUDIO_MIME[path.extname(file)] || 'audio/mp4', bytes: fs.readFileSync(file) };
+    },
+    /** Найденный сдвиг клипа относительно трека: запоминаем, чтобы в следующий раз клип шёл в такт сразу. */
+    setOffset(track, offset) {
+      const item = track && index[keyOf(track)];
+      if (!item || item.kind === 'ym' || typeof offset !== 'number' || !Number.isFinite(offset)) return;
+      item.offset = Math.round(offset * 1000) / 1000;
+      saveIndex();
+    },
+    offsetOf(track) {
+      const item = track && index[keyOf(track)];
+      return typeof item?.offset === 'number' ? item.offset : null;
+    },
     /** Кнопка «Скачать клип» в плеере: качает сразу, без ожидания полноэкранного плеера. */
     async save(track) {
       const found = await this.get(track, { force: true });
@@ -353,6 +469,11 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     retry() {
       retryAfter = 0;
       lastError = '';
+    },
+    /** Предел кеша поменялся: лишнее удаляем сразу. */
+    trim() {
+      trim();
+      saveIndex();
     },
     clear() {
       fs.rmSync(cacheDir, { recursive: true, force: true });

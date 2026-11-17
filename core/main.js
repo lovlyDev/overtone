@@ -6,7 +6,7 @@
 // Главный процесс Overtone. Запускается до кода приложения.
 const fs = require('fs');
 const path = require('path');
-const { app, session, ipcMain, BrowserWindow } = require('electron');
+const { app, session, ipcMain, BrowserWindow, shell } = require('electron');
 const createVideo = require('./video');
 const createSoundcloud = require('./soundcloud');
 const createMedia = require('./media');
@@ -28,7 +28,8 @@ const DEFAULTS = {
   videoYoutube: true, // клип с YouTube, если своего видео нет
   videoDelay: 7, // секунд до появления клипа
   videoHeight: 1080, // 480 | 720 | 1080 | 1440 | 2160
-  videoCacheMb: 1024,
+  videoCacheMb: 1024, // предел кеша клипов, МБ
+  scCacheMb: 2048, // предел кеша треков SoundCloud, МБ; 0 — без предела
   proxy: '', // например socks5://127.0.0.1:1080, только для YouTube
   scQuality: 'high', // high = AAC 160 kbps, low = AAC 96 kbps
   scProxy: false, // пускать SoundCloud через тот же прокси
@@ -46,6 +47,7 @@ const DEFAULTS = {
   discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
   discordClientId: '', // свой ID приложения; пусто — берётся из package.json
   liveBackground: true, // живой фон в полноэкранном плеере, когда нет клипа
+  thumbar: true, // кнопки «назад / пауза / вперёд» в превью окна на панели задач
   lite: false, // режим экономии: без живого фона, размытий и преломления — для слабых компьютеров
   lastfm: { apiKey: '', secret: '', session: '', user: '', enabled: false },
 };
@@ -119,6 +121,7 @@ module.exports = function start({ dataDir, root }) {
     contents.on('dom-ready', () => {
       if (FOREIGN.test(contents.getURL())) return;
       windows.add(win);
+      system.watchWindow(win);
       applyMaterial(win);
       try {
         const { css, scripts } = readPage();
@@ -145,6 +148,9 @@ module.exports = function start({ dataDir, root }) {
     video.retry();
     for (const win of windows) if (!win.isDestroyed() && 'theme' in patch) applyMaterial(win);
     if ('hotkeys' in patch || 'hotkeysEnabled' in patch) system.registerHotkeys();
+    if ('thumbar' in patch) system.thumbarAll();
+    if ('scCacheMb' in patch) soundcloud.trimCache();
+    if ('videoCacheMb' in patch) video.trim();
     return publicConfig(config);
   });
   ipcMain.handle('overtone:release', async (_event, force) => {
@@ -183,6 +189,8 @@ module.exports = function start({ dataDir, root }) {
   ipcMain.handle('overtone:lastfm-finish', () => lastfm.finishLogin());
   ipcMain.handle('overtone:lastfm-logout', () => lastfm.logout());
   ipcMain.handle('overtone:video', (_event, track) => video.get(track));
+  ipcMain.handle('overtone:video-audio', (_event, track) => video.audio(track));
+  ipcMain.handle('overtone:video-offset', (_event, track, offset) => (offset === undefined ? video.offsetOf(track) : video.setOffset(track, offset)));
   ipcMain.handle('overtone:video-warm', async (_event, track) => Boolean(await video.warm(track)));
   ipcMain.handle('overtone:video-reject', (_event, track) => video.reject(track));
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
@@ -197,6 +205,19 @@ module.exports = function start({ dataDir, root }) {
     if (track?.url && /^https:\/\/(www\.|m\.)?soundcloud\.com\//.test(track.url)) require('electron').shell.openExternal(track.url);
   });
   ipcMain.handle('overtone:video-clear', () => video.clear());
+  // Кеш целиком: треки SoundCloud, клипы и мелочь (тексты, обложки, настройки разведки).
+  ipcMain.handle('overtone:cache-stats', () => {
+    const small = ['lyrics.json', 'covers.json', 'soundcloud.json', 'taste.json', 'stats.json']
+      .map((name) => path.join(dataDir, name))
+      .reduce((sum, file) => sum + (fs.existsSync(file) ? fs.statSync(file).size : 0), 0);
+    return { audio: soundcloud.cacheStats(), video: video.stats(), small };
+  });
+  ipcMain.handle('overtone:cache-clear', (_event, kind) => {
+    if (kind === 'audio') return soundcloud.clearCache();
+    if (kind === 'video') return video.clear();
+    return null;
+  });
+  ipcMain.handle('overtone:cache-open', () => shell.openPath(path.join(dataDir, 'cache')));
 
   app.whenReady().then(() => {
     const preload = { type: 'frame', id: 'overtone', filePath: path.join(root, 'core', 'preload.js') };

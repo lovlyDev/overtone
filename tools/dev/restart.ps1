@@ -8,7 +8,7 @@ $exe = Get-ChildItem "$env:LOCALAPPDATA\Programs\YandexMusic\*.exe" | Where-Obje
 foreach ($attempt in 1..3) {
   Get-Process | Where-Object { $_.Path -like '*\Programs\YandexMusic\*' } | Stop-Process -Force
   Start-Sleep -Seconds 2
-  Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9333', '--remote-allow-origins=*'
+  Start-Process -FilePath $exe.FullName -ArgumentList '--remote-debugging-port=9333', '--remote-allow-origins=*', '--disable-features=CalculateNativeWinOcclusion', '--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows'
   foreach ($wait in 1..10) {
     Start-Sleep -Seconds 2
     try {

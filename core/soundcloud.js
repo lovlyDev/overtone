@@ -11,7 +11,6 @@ const { spawn } = require('child_process');
 
 const FORMATS = { high: 'hls_aac_160k/hls_aac_96k', low: 'hls_aac_96k/hls_aac_160k' };
 const BITRATE = { high: 160, low: 96 };
-const CACHE_LIMIT = 2 * 1024 * 1024 * 1024;
 const SEARCH_TTL_MS = 15 * 60 * 1000;
 const KEEP_TRACKS = 3000;
 const KEEP_SEARCHES = 30;
@@ -122,16 +121,32 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
     return name && fs.statSync(path.join(cacheDir, name)).size > 0 ? path.join(cacheDir, name) : null;
   }
 
+  const cacheFiles = () =>
+    fs.existsSync(cacheDir)
+      ? fs.readdirSync(cacheDir).map((name) => ({ file: path.join(cacheDir, name), stat: fs.statSync(path.join(cacheDir, name)) }))
+      : [];
+  /** Предел кеша треков из настроек (МБ); 0 — без предела. */
+  const cacheLimit = () => {
+    const mb = Number(getConfig().scCacheMb);
+    return (Number.isFinite(mb) ? mb : 2048) * 1024 * 1024;
+  };
+  /** Удаляет файл; если он сейчас играет (Windows не даёт удалить открытый файл) — пропускает. */
+  const remove = (file) => {
+    try {
+      fs.rmSync(file, { force: true });
+      return true;
+    } catch {
+      return false;
+    }
+  };
   function trim() {
-    const files = fs
-      .readdirSync(cacheDir)
-      .map((name) => ({ file: path.join(cacheDir, name), stat: fs.statSync(path.join(cacheDir, name)) }))
-      .sort((a, b) => a.stat.atimeMs - b.stat.atimeMs);
+    const limit = cacheLimit();
+    if (!limit) return;
+    const files = cacheFiles().sort((a, b) => a.stat.atimeMs - b.stat.atimeMs);
     let total = files.reduce((sum, item) => sum + item.stat.size, 0);
     for (const item of files) {
-      if (total <= CACHE_LIMIT) break;
-      fs.rmSync(item.file, { force: true });
-      total -= item.stat.size;
+      if (total <= limit) break;
+      if (remove(item.file)) total -= item.stat.size;
     }
   }
 
@@ -335,6 +350,18 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
   }
 
   return {
+    /** Кеш треков: сколько файлов и байт. */
+    cacheStats() {
+      const files = cacheFiles().filter((item) => item.file.endsWith('.m4a'));
+      return { count: files.length, bytes: files.reduce((sum, item) => sum + item.stat.size, 0) };
+    },
+    /** Очистить кеш треков; играющий сейчас файл остаётся. Возвращает, сколько файлов осталось. */
+    clearCache() {
+      let kept = 0;
+      for (const item of cacheFiles()) if (!remove(item.file)) kept += 1;
+      return kept;
+    },
+    trimCache: () => trim(),
     search,
     searchRaw,
     importLikes,

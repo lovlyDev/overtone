@@ -27,6 +27,11 @@ function audioHook() {
     }
     return context.__otInput;
   };
+  const elementSource = AudioContext.prototype.createMediaElementSource;
+  AudioContext.prototype.createMediaElementSource = function (element) {
+    this.__otElement = element;
+    return elementSource.call(this, element);
+  };
   AudioNode.prototype.connect = function (target, ...rest) {
     if (target instanceof AudioDestinationNode && !this.__otOwn) return connect.call(this, inputOf(target.context), ...rest);
     return connect.call(this, target, ...rest);
@@ -66,6 +71,9 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
       return { kind: found.kind, url: URL.createObjectURL(new Blob([found.bytes], { type: found.mime })) };
     },
     releaseVideo: (url) => URL.revokeObjectURL(url),
+    // Звук клипа для сверки с треком: байты, страница сама раскладывает их на сэмплы.
+    videoAudio: async (track) => (await ipcRenderer.invoke('overtone:video-audio', track))?.bytes || null,
+    videoOffset: (track, offset) => ipcRenderer.invoke('overtone:video-offset', track, offset),
     // Только скачать клип заранее, без передачи самого файла в страницу.
     warmVideo: (track) => ipcRenderer.invoke('overtone:video-warm', track),
     rejectVideo: (track) => ipcRenderer.invoke('overtone:video-reject', track),
@@ -108,5 +116,10 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
     },
     videoStats: () => ipcRenderer.invoke('overtone:video-stats'),
     clearVideo: () => ipcRenderer.invoke('overtone:video-clear'),
+    cache: {
+      stats: () => ipcRenderer.invoke('overtone:cache-stats'),
+      clear: (kind) => ipcRenderer.invoke('overtone:cache-clear', kind),
+      open: () => ipcRenderer.invoke('overtone:cache-open'),
+    },
   });
 }

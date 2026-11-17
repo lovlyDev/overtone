@@ -11,7 +11,8 @@
   const MODAL = '[data-test-id="FULLSCREEN_PLAYER_MODAL"]';
   const CONTROLS = 'button, a, input, [role="slider"], [role="button"], [class*="slider" i], #ot-settings';
   const CUE_MS = 2200; // сколько обложка мигает перед появлением клипа
-  const DRIFT = 0.6; // допустимое расхождение клипа и трека, секунды
+  const JUMP = 0.35; // расхождение больше — перематываем клип, меньше — подтягиваем скоростью
+  const SYNC_WAIT_MS = 25_000; // дольше сверку не ждём: показываем клип как есть
   const SAME_LENGTH = 4; // клип считается «тем же треком», если длина отличается не больше
   const root = document.documentElement;
 
@@ -23,7 +24,7 @@
   let source = null; // { url, kind }
   let ready = false;
   let dismissed = false;
-  let lastPosition = null;
+  let bound = null; // <audio> трека, на события которого подписан клип
 
   const phase = (value) => (value ? (root.dataset.otVideo = value) : delete root.dataset.otVideo);
 
@@ -123,7 +124,7 @@
     drop();
     layer?.remove();
     key = '';
-    player =ot.el('video', { muted: true, playsInline: true, loop: true, preload: 'auto' });
+    player = ot.el('video', { muted: true, playsInline: true, loop: true, preload: 'auto' });
     player.addEventListener('canplay', () => {
       ready = true;
       // Клип скачался позже обычной задержки: даём обложке пару секунд, потом мигание и клип.
@@ -152,16 +153,76 @@
     player.src = found.url;
   }
 
-  function follow(track) {
-    const position = ot.position();
-    const playing = position === null || position !== lastPosition;
-    lastPosition = position;
-    if (!playing) return player.pause();
-    if (player.paused) player.play().catch(() => {});
+  /**
+   * Сдвиг клипа относительно трека (время в клипе = время трека + сдвиг) или null, если клип идёт сам по себе.
+   * Сдвиг находит сверка по звуку (page/41-sync.js); пока её нет — клип той же длины считается без сдвига.
+   */
+  function offsetFor(track) {
+    if (source?.kind !== 'yt') return null;
+    const found = ot.sync?.offset(track);
+    if (typeof found === 'number') return found;
     const length = (track.durationMs || 0) / 1000;
-    const synced = source.kind === 'yt' && position !== null && length && Math.abs(player.duration - length) <= SAME_LENGTH;
-    if (synced && Math.abs(player.currentTime - position) > DRIFT) player.currentTime = position;
+    return length && Math.abs(player.duration - length) <= SAME_LENGTH ? 0 : null;
   }
+  /** Время клипа для текущей секунды трека; null — клип не сверен. */
+  function target(track) {
+    const offset = offsetFor(track);
+    if (offset === null) return null;
+    const time = ot.clock?.()?.time ?? ot.position();
+    return typeof time === 'number' ? time + offset : null;
+  }
+  const inClip = (time) => time >= 0.05 && time <= (player.duration || 0) - 0.15;
+
+  /** Подогнать клип под трек сейчас: по таймеру, после перемотки, паузы, смены скорости. */
+  function align() {
+    const state = root.dataset.otVideo;
+    const track = ot.track();
+    if (!player || !track || dismissed || (state !== 'on' && state !== 'hold')) return;
+    const playing = Boolean(ot.clock?.()) || /playing/i.test(ot.status?.() || '');
+    if (!playing) {
+      player.pause();
+      return;
+    }
+    const time = target(track);
+    player.loop = time === null; // несверенный клип крутится по кругу, сверенный — идёт за треком
+    if (time === null) {
+      player.playbackRate = 1;
+      if (player.paused) player.play().catch(() => {});
+      return;
+    }
+    // Трек сейчас там, где клипа нет (вступление трека до начала клипа или после его конца) — показываем обложку.
+    if (!inClip(time)) {
+      if (state === 'on') phase('hold');
+      player.pause();
+      return;
+    }
+    if (state === 'hold') phase('on');
+    const drift = player.currentTime - time;
+    if (Math.abs(drift) > JUMP) {
+      player.currentTime = time;
+      player.playbackRate = 1;
+    } else {
+      // Мелкое расхождение — незаметно: чуть быстрее или медленнее, пока не сойдётся.
+      player.playbackRate = Math.abs(drift) > 0.04 ? Math.max(0.92, Math.min(1.08, 1 - drift * 0.8)) : 1;
+    }
+    if (player.paused) player.play().catch(() => {});
+  }
+
+  /** Подписка на <audio> трека: перемотку видно сразу, а не через полсекунды. */
+  function bind() {
+    const element = ot.clock?.()?.element || null;
+    if (element === bound) return;
+    for (const name of ['seeked', 'play', 'pause', 'ratechange']) {
+      bound?.removeEventListener(name, align);
+      element?.addEventListener(name, align);
+    }
+    bound = element;
+  }
+  setInterval(() => {
+    bind();
+    align();
+  }, 250);
+  ot.on('sync', align);
 
   // Сцены в клипе меняются — яркость и полосы перемеряем каждые 3 секунды.
   setInterval(() => root.dataset.otVideo === 'on' && player && fitBars(player), 3000);
@@ -183,13 +244,19 @@
     }
     if (dismissed || !ready) return;
     const state = root.dataset.otVideo;
-    if (state === 'on') return follow(track);
-    if (state === 'cue' || now - since < (Number(ot.config.videoDelay) || 7) * 1000) return;
+    if (state === 'on' || state === 'hold' || state === 'cue') return;
+    if (now - since < (Number(ot.config.videoDelay) || 7) * 1000) return;
+    // Клип с YouTube ждёт сверки со звуком, чтобы сразу идти в такт словам (но не бесконечно).
+    if (source?.kind === 'yt' && ot.sync?.pending(track) && now - since < SYNC_WAIT_MS) return;
+    // Сверенный клип показываем, только когда трек дошёл до места, где клип есть.
+    const time = target(track);
+    if (time !== null && !inClip(time)) return;
     phase('cue');
     const mine = request;
     setTimeout(() => {
       if (mine !== request || dismissed) return;
       phase('on');
+      align();
       player.play().catch(() => {});
     }, CUE_MS);
   });

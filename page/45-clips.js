@@ -94,6 +94,8 @@
 
   /** Известно ли заранее, что у трека есть клип (для повторных попыток в 40-video.js). */
   ot.hasClip = (id) => known.has(String(id));
+  /** Откуда клип: 'yt' — YouTube (его сверяем со звуком), 'ym' — фоновое видео Яндекса. */
+  ot.clipKind = (id) => known.get(String(id))?.kind || null;
   const update = (kinds) => {
     known = new Map(Object.entries(kinds || {}).map(([id, value]) => [id, typeof value === 'string' ? { kind: value, saved: true } : value]));
     mark();

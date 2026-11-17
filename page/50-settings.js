@@ -74,17 +74,34 @@
     // Прокси часто с логином и паролем: на экране не показываем.
     const proxy = el('input', { className: 'ot-input', type: 'password', placeholder: 'socks5://127.0.0.1:1080', value: ot.config.proxy || '' });
     proxy.addEventListener('change', () => ot.set({ proxy: proxy.value.trim() }));
-    const cache = el('span', { textContent: '…' });
-    const clear = el('button', { type: 'button', className: 'ot-pill', textContent: 'Очистить' });
-    clear.addEventListener('click', async () => {
-      await window.overtone.clearVideo();
-      render();
+    // ---------- кеш ----------
+    const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1).replace('.', ',')} ГБ` : bytes < 1048576 ? 'меньше 1 МБ' : `${Math.round(bytes / 1048576)} МБ`);
+    const audioInfo = el('span', { textContent: '…' });
+    const videoInfo = el('span', { textContent: '…' });
+    const smallInfo = el('span', { textContent: '…' });
+    const clearButton = (kind, label) => {
+      const button = el('button', { type: 'button', className: 'ot-pill', textContent: label });
+      button.addEventListener('click', async () => {
+        button.disabled = true;
+        const kept = await window.overtone.cache.clear(kind).catch(() => 0);
+        if (kept) ot.toast?.('Играющий сейчас трек оставлен — его удалить нельзя, пока он звучит');
+        render();
+      });
+      return button;
+    };
+    const openCache = el('button', { type: 'button', className: 'ot-pill', textContent: 'Открыть папку' });
+    openCache.addEventListener('click', () => window.overtone.cache.open());
+    window.overtone.cache?.stats().then(({ audio, video, small }) => {
+      audioInfo.textContent = `${audio.count} треков, ${size(audio.bytes)}. Хранятся, чтобы второй раз играть сразу.`;
+      videoInfo.textContent = `${video.count} клипов, ${size(video.bytes)}.`;
+      smallInfo.textContent = `Тексты, обложки, вкус волны и итоги — ${size(small)}. Они не удаляются.`;
     });
+    const cacheRow = (title, info, control) =>
+      el('div', { className: 'ot-row' }, [el('div', { className: 'ot-row-text' }, [el('b', { textContent: title }), info]), control]);
     const wrong = el('button', { type: 'button', className: 'ot-pill', textContent: 'Убрать у этого трека' });
     wrong.addEventListener('click', () => ot.rejectVideo());
     const problem = el('div', { className: 'ot-problem', hidden: true });
-    window.overtone.videoStats().then(({ count, bytes, ytdlp, error }) => {
-      cache.textContent = `${count} видео, ${(bytes / 1048576).toFixed(0)} МБ`;
+    window.overtone.videoStats().then(({ ytdlp, error }) => {
       const text = ytdlp ? error : 'yt-dlp не установлен: клипы с YouTube не ищутся.';
       problem.textContent = text;
       problem.hidden = !text;
@@ -208,12 +225,22 @@
       row('Замена недоступных', 'Серые треки Яндекса ищутся на SoundCloud и играют оттуда. Только при точном совпадении.', toggle('scReplace')),
       row('Прокси для YouTube', 'Пусто — напрямую.', proxy),
       problem,
-      row('Кеш видео', '', el('div', { className: 'ot-inline' }, [cache, clear])),
       row('Не тот клип', 'Удалить клип текущего трека и больше не искать.', wrong),
+      section('Кеш'),
+      cacheRow('Треки SoundCloud', audioInfo, el('div', { className: 'ot-inline' }, [
+        select('scCacheMb', [[1024, 'До 1 ГБ'], [2048, 'До 2 ГБ'], [5120, 'До 5 ГБ'], [10240, 'До 10 ГБ'], [0, 'Без предела']]),
+        clearButton('audio', 'Очистить'),
+      ])),
+      cacheRow('Клипы', videoInfo, el('div', { className: 'ot-inline' }, [
+        select('videoCacheMb', [[512, 'До 512 МБ'], [1024, 'До 1 ГБ'], [2048, 'До 2 ГБ'], [5120, 'До 5 ГБ']]),
+        clearButton('video', 'Очистить'),
+      ])),
+      cacheRow('Остальное', smallInfo, openCache),
       section('Управление'),
       row('Глобальные клавиши', 'Ctrl+Alt+P пауза, Ctrl+Alt+←/→ трек, Ctrl+Alt+L лайк, Ctrl+Alt+↑/↓ громкость. Работают в любой программе.', toggle('hotkeysEnabled')),
       keys,
       row('Таймер сна', sleepNote, sleep),
+      row('Кнопки на панели задач', 'Назад, пауза и вперёд в превью окна, когда наводишь на значок Яндекс Музыки.', toggle('thumbar')),
       row('Пауза при блокировке', 'Win+L ставит музыку на паузу.', toggle('pauseOnLock')),
       row('Пауза без наушников', 'Отключил наушники — музыка встала, а не заиграла на весь дом.', toggle('pauseOnHeadphones')),
       row('Без рекламы и слежки', 'Блокирует рекламу, Яндекс Метрику и вебвизор. Рекомендации не страдают.', toggle('blockAds')),

@@ -115,7 +115,7 @@
     // всей страницы 30 раз в секунду — отсюда и подтормаживания уведомлений и прокрутки.
     poster ||= document.querySelector(POSTER);
     if (poster && !poster.isConnected) poster = document.querySelector(POSTER);
-    const pulse = root.dataset.otVideo ? '0' : (env.bass * 0.03 + env.beat * 0.025).toFixed(3);
+    const pulse = /^(on|cue)$/.test(root.dataset.otVideo || '') ? '0' : (env.bass * 0.03 + env.beat * 0.025).toFixed(3);
     if (poster && pulse !== lastPulse) {
       lastPulse = pulse;
       poster.style.setProperty('--ot-pulse', pulse);
