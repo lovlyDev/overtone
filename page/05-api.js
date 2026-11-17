@@ -12,10 +12,17 @@
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
     if (url.origin !== 'https://api.music.yandex.net') return original.call(this, input, options);
     const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    // Вход в аккаунт приложения — только в памяти страницы: им мод создаёт перенесённый плейлист (page/62-transfer.js).
+    try {
+      const headers = new Headers(options?.headers || (input instanceof Request ? input.headers : undefined));
+      if (headers.get('authorization')) ot.ymHeaders = headers;
+      const uid = /^\/users\/(\d+)\//.exec(url.pathname)?.[1];
+      if (uid && uid !== '70') ot.ymUid = uid;
+    } catch {}
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
     const sync = url.pathname === '/collection/sync';
     // Свои плейлисты: закреплённые и понравившиеся — дополняем ответ сервера.
-    const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes|^\/pins$|^\/users\/\d+\/likes\/playlists$/.test(url.pathname);
+    const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes|^\/pins$|^\/users\/\d+\/likes\/playlists$/.test(url.pathname) || Boolean(ot.transferUuids?.has(url.pathname.split('/')[2]) && url.pathname.startsWith('/playlist/'));
     if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
       return original.call(this, input, options);
     }

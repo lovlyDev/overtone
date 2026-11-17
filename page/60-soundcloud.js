@@ -31,6 +31,8 @@
   const clean = (error) => String(error?.message || error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '');
   const WAVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 12c2-4 4-4 6 0s4 4 6 0 4-4 6 0"/><path d="M3 17c2-3 4-3 6 0s4 3 6 0 4-3 6 0" opacity=".5"/></svg>';
   const IMPORT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5"/><path d="M5 20h14"/></svg>';
+  const MOVE = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h12M12 3l4 4-4 4"/><path d="M20 17H8M12 13l-4 4 4 4"/></svg>';
+  const TRANSFER = /spotify\.com|music\.apple\.com|(^|\/\/|\.)vk\.(com|ru)\//i;
   const PIN = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 21s-7-4.4-7-10a4.5 4.5 0 0 1 7-3.7A4.5 4.5 0 0 1 19 11c0 5.6-7 10-7 10z"/></svg>';
 
   /** Долгое действие с текстом хода работы в строке состояния. */
@@ -41,6 +43,28 @@
     status.textContent = text;
     try {
       open(await task());
+    } catch (error) {
+      status.textContent = `Не получилось: ${clean(error)}`;
+    } finally {
+      busy = false;
+      status.dataset.busy = 'false';
+    }
+  }
+
+  /** Перенос плейлиста: ход работы в строке состояния, по готовности — открыть плейлист и коротко рассказать итог. */
+  async function transfer(status, link) {
+    if (busy) return;
+    busy = true;
+    status.dataset.busy = 'true';
+    status.textContent = 'Читаю плейлист…';
+    try {
+      const result = await ot.transfer(link, (text) => pop && (status.textContent = text));
+      open(result.uuid);
+      const parts = [`Перенесено ${result.found} из ${result.total}`];
+      if (result.sc) parts.push(`${result.sc} — с SoundCloud`);
+      if (result.missing.length) parts.push('ненайденные — в описании плейлиста');
+      if (result.limited) parts.push('Spotify отдаёт только первые 100 треков');
+      ot.toast?.(parts.join(' · '));
     } catch (error) {
       status.textContent = `Не получилось: ${clean(error)}`;
     } finally {
@@ -89,17 +113,33 @@
       input.focus();
     });
 
+    const moveTile = tile(MOVE, 'Перенести плейлист', 'Из Spotify, Apple Music или ВКонтакте — в твою Яндекс Музыку', () => {
+      mode = mode === 'transfer' ? 'search' : 'transfer';
+      moveTile.dataset.active = String(mode === 'transfer');
+      importTile.dataset.active = 'false';
+      input.placeholder = mode === 'transfer' ? 'Ссылка на плейлист Spotify, Apple Music или ВКонтакте' : 'Поиск или ссылка SoundCloud';
+      status.textContent = mode === 'transfer'
+        ? 'Вставь ссылку и нажми Enter. Плейлист появится в твоей Яндекс Музыке; чего нет в Яндексе — найдётся на SoundCloud.'
+        : 'Название, исполнитель или ссылка на трек, плейлист, профиль';
+      input.value = '';
+      input.focus();
+    });
+
     const recent = el('div', { className: 'ot-sc-recent ot-scroll' });
-    pop = el('div', { id: 'ot-sc-pop' }, [input, status, el('div', { className: 'ot-sc-tiles' }, [waveTile, moods, ...(fromTile ? [fromTile] : []), importTile]), recent]);
+    pop = el('div', { id: 'ot-sc-pop' }, [input, status, el('div', { className: 'ot-sc-tiles' }, [waveTile, moods, ...(fromTile ? [fromTile] : []), importTile, moveTile]), recent]);
     document.body.append(pop);
     const box = nav.getBoundingClientRect();
     pop.style.left = `${box.right + 12}px`;
-    pop.style.top = `${Math.max(12, Math.min(box.top - 80, innerHeight - pop.offsetHeight - 12))}px`;
+    // Окно не должно уходить за край экрана: ставим заново, когда подгрузится список недавних.
+    const fit = () => pop && (pop.style.top = `${Math.max(12, Math.min(box.top - 80, innerHeight - pop.offsetHeight - 12))}px`);
+    fit();
     input.focus();
     input.addEventListener('keydown', (event) => {
       if (event.key === 'Escape') return close();
       if (event.key !== 'Enter' || !input.value.trim()) return;
       if (mode === 'import') return work(status, 'Забираю лайки, это может занять минуту…', () => sc.importLikes(input.value));
+      // Ссылка на чужой сервис — перенос, даже если кнопку не нажимали.
+      if (mode === 'transfer' || TRANSFER.test(input.value)) return transfer(status, input.value);
       work(status, /soundcloud\.com|snd\.sc/i.test(input.value) ? 'Открываю ссылку…' : 'Ищу на SoundCloud…', () => sc.search(input.value));
     });
     const items = await sc.recent().catch(() => []);
@@ -114,6 +154,7 @@
         return node;
       }),
     );
+    fit();
   }
 
   function place() {

@@ -20,6 +20,7 @@ const createWave = require('./wave');
 const createLyrics = require('./lyrics');
 const createCovers = require('./covers');
 const createStats = require('./stats');
+const createImporter = require('./importer');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -242,6 +243,10 @@ module.exports = function start({ dataDir, root }) {
     for (const name of VENDOR) await event.sender.executeJavaScript(`${fs.readFileSync(path.join(pageDir, 'vendor', name), 'utf8')}\n//# sourceURL=overtone/vendor/${name}`);
     return true;
   });
+  const importer = createImporter({ soundcloud });
+  ipcMain.handle('overtone:transfer-prepare', (event, link) => importer.prepare(link, (text) => !event.sender.isDestroyed() && event.sender.send('overtone:transfer-progress', text)));
+  ipcMain.handle('overtone:transfer-extras', (_event, uuid, extras) => api.setTransfer(uuid, extras));
+  ipcMain.handle('overtone:transfer-list', () => api.transferUuids());
   ipcMain.handle('overtone:stats', (_event, period) => stats.summary(period));
   app.on('will-quit', () => {
     const installer = path.join(dataDir, 'Overtone.exe');

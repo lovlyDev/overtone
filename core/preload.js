@@ -116,6 +116,12 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
     },
     videoStats: () => ipcRenderer.invoke('overtone:video-stats'),
     clearVideo: () => ipcRenderer.invoke('overtone:video-clear'),
+    transfer: {
+      prepare: (link) => ipcRenderer.invoke('overtone:transfer-prepare', link),
+      extras: (uuid, extras) => ipcRenderer.invoke('overtone:transfer-extras', uuid, extras),
+      list: () => ipcRenderer.invoke('overtone:transfer-list'),
+      onProgress: (listener) => ipcRenderer.on('overtone:transfer-progress', (_event, text) => listener(text)),
+    },
     loadVendor: () => ipcRenderer.invoke('overtone:vendor'),
     stats: (period) => ipcRenderer.invoke('overtone:stats', period),
     cache: {

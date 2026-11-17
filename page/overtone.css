@@ -359,6 +359,10 @@ html[data-ot-video='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
   position: fixed;
   z-index: 715;
   width: 340px;
+  /* Окно не выше экрана: лишнее — в прокрутке списка недавних. */
+  max-height: calc(100vh - 24px);
+  display: flex;
+  flex-direction: column;
   padding: 12px;
   border-radius: 20px;
   background: var(--ym-background-color-primary-enabled-popover);
@@ -386,7 +390,8 @@ html[data-ot-theme='glass'] #ot-sc-pop {
 #ot-sc-pop input:focus { box-shadow: inset 0 0 0 1.5px var(--ym-controls-color-primary-default-enabled); }
 .ot-sc-status { margin: 10px 6px 2px; color: var(--ym-controls-color-primary-text-enabled); font-size: 13px; }
 .ot-sc-status[data-busy='true'] { animation: ot-wait 1s ease-in-out infinite; }
-.ot-sc-recent { display: flex; flex-direction: column; margin-top: 8px; max-height: 240px; overflow: auto; }
+.ot-sc-recent { display: flex; flex-direction: column; margin-top: 8px; max-height: 240px; min-height: 60px; flex: 1 1 auto; overflow: auto; }
+#ot-sc-pop > :not(.ot-sc-recent) { flex: none; }
 .ot-sc-recent button {
   flex: none;
   border: 0;

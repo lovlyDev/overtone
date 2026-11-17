@@ -84,6 +84,42 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
   }
 
   /** Добавляет отмеченные треки SoundCloud в «Мне нравится», по дате вперемешку с родными. */
+  // ---------- перенесённые плейлисты ----------
+  // Плейлист из Spotify и других создаётся настоящим, в аккаунте Яндекса. Треки, которые нашлись только
+  // на SoundCloud, сервер Яндекса в плейлист не примет — вставляем их сами, на их места, когда плейлист открывают.
+  const transfersFile = path.join(dataDir, 'transfers.json');
+  let transfers = {};
+  try {
+    transfers = JSON.parse(fs.readFileSync(transfersFile, 'utf8'));
+  } catch {}
+  function setTransfer(uuid, extras) {
+    if (!/^[0-9a-f-]{36}$/.test(String(uuid)) || !Array.isArray(extras)) return false;
+    transfers[uuid] = extras.filter((item) => /^\d+$/.test(String(item.id)) && Number.isInteger(item.at)).map((item) => ({ at: item.at, id: String(item.id) }));
+    if (!transfers[uuid].length) delete transfers[uuid];
+    fs.mkdirSync(dataDir, { recursive: true });
+    fs.writeFileSync(transfersFile, JSON.stringify(transfers));
+    return true;
+  }
+  function mergeTransfer(playlist, uuid) {
+    const extras = transfers[uuid];
+    if (!extras?.length || !Array.isArray(playlist.tracks)) return null;
+    const tracks = [...playlist.tracks];
+    let extra = 0;
+    for (const item of [...extras].sort((a, b) => a.at - b.at)) {
+      const id = Number(toSynthetic(item.id));
+      if (tracks.some((track) => Number(track.id) === id)) continue;
+      tracks.splice(Math.min(item.at, tracks.length), 0, { id, albumId: id, timestamp: tracks[0]?.timestamp || iso(Date.now()) });
+      extra += soundcloud.track(item.id)?.durationMs || 0;
+    }
+    const added = tracks.length - playlist.tracks.length;
+    return {
+      ...playlist,
+      tracks: tracks.map((track, index) => ({ ...track, originalIndex: index, originalShuffleIndex: index })),
+      trackCount: (playlist.trackCount || 0) + added,
+      durationMs: (playlist.durationMs || 0) + extra,
+    };
+  }
+
   function mergeLiked(playlist) {
     const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));
     if (!mine.length || !Array.isArray(playlist.tracks)) return playlist;
@@ -305,6 +341,11 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { body: { ...data, downloadInfos: data.downloadInfos.map((info) => ours.get(String(info?.trackId)) || info) }, status: 200 };
       }
       if (/\/playlist\/lk\./.test(url.pathname)) return { body: mergeLiked(data), status: 200 };
+      const transferred = /^\/playlist\/([0-9a-f-]{36})$/.exec(url.pathname);
+      if (transferred && transfers[transferred[1]]) {
+        const merged = mergeTransfer(data, transferred[1]);
+        return merged ? { body: merged, status: 200 } : null;
+      }
       if (url.pathname === '/pins' && Array.isArray(data.pins)) {
         const mine = pinnedPlaylists().map((entry) => ({ type: 'playlist_item', data: searchPlaylist(entry) }));
         return mine.length ? { body: { ...data, pins: [...data.pins, ...mine] }, status: 200 } : null;
@@ -354,5 +395,5 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     return (await routeRequest(params, url, reply, async () => params.request.postData)) || null;
   }
 
-  return { resolve, isSynthetic, uuidOf };
+  return { resolve, isSynthetic, uuidOf, setTransfer, transferUuids: () => Object.keys(transfers) };
 };
