@@ -716,3 +716,36 @@ html[data-ot-lite='on'] :is(#ot-settings, .ot-menu, #ot-page, [class*='PopoverWi
 .ot-stats-row .bar { height: 6px; border-radius: 99px; background: var(--ym-controls-color-secondary-default-enabled); overflow: hidden; }
 .ot-stats-row .bar i { display: block; height: 100%; border-radius: 99px; background: #ffdb4d; }
 .ot-stats-row .time { color: var(--ym-controls-color-primary-text-enabled); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+/* ---------- Визуализатор ---------- */
+#ot-viz-wrap {
+  position: absolute;
+  inset: 0;
+  z-index: -2;
+  overflow: hidden;
+  pointer-events: none;
+  background: #000;
+  animation: ot-live-in 1.2s ease-out;
+}
+#ot-viz { position: absolute; inset: 0; width: 100%; height: 100%; }
+/* Затемнение снизу и по краям: текст и кнопки читаются поверх любой визуализации. */
+#ot-viz-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 50% 45%, transparent 0 30%, rgb(0 0 0 / 0.5) 100%),
+    linear-gradient(to top, rgb(0 0 0 / 0.6), transparent 45%);
+}
+html[data-ot-video='on'] #ot-viz-wrap { opacity: 0; transition: opacity 1.4s ease; }
+html[data-ot-viz='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
+  [class*='FullscreenPlayerDesktop_root'], [class*='FullscreenPlayerDesktop_modalContent'], [class*='FullscreenPlayerDesktopContent_root']
+) { background: transparent !important; }
+html[data-ot-viz='on'] [class*='FullscreenPlayerDesktopPoster_root'] { box-shadow: 0 30px 80px -20px rgb(0 0 0 / 0.7); }
+html[data-ot-viz='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] [class*='SyncLyrics_content']::before,
+html[data-ot-viz='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] [class*='SyncLyrics_content']::after { display: none; }
+html[data-ot-viz='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] [class*='SyncLyrics_content'] {
+  -webkit-mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+  mask-image: linear-gradient(transparent, #000 14%, #000 86%, transparent);
+}
+html[data-ot-viz='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] [class*='SyncLyricsLine_root'] { text-shadow: 0 2px 18px rgb(0 0 0 / 0.6); }

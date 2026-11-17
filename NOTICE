@@ -14,3 +14,8 @@ https://github.com/lovlyDev/overtone
 
 Overtone не связан с ООО «Яндекс» и SoundCloud Global Limited.
 «Яндекс Музыка» и «SoundCloud» — товарные знаки их владельцев.
+
+Сторонний код:
+  Butterchurn и butterchurn-presets (page/vendor) — © 2013-2018 Jordan Berg,
+  лицензия MIT (page/vendor/LICENSE-butterchurn), https://github.com/jberg/butterchurn.
+  Пресеты основаны на визуализаторе MilkDrop.

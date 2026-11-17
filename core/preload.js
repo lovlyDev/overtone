@@ -116,6 +116,7 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
     },
     videoStats: () => ipcRenderer.invoke('overtone:video-stats'),
     clearVideo: () => ipcRenderer.invoke('overtone:video-clear'),
+    loadVendor: () => ipcRenderer.invoke('overtone:vendor'),
     stats: (period) => ipcRenderer.invoke('overtone:stats', period),
     cache: {
       stats: () => ipcRenderer.invoke('overtone:cache-stats'),

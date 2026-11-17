@@ -19,7 +19,7 @@ const STYLES = {
   '.ps1': (lines) => lines.map((line) => `# ${line}`).join('\n'),
   '.yml': (lines) => lines.map((line) => `# ${line}`).join('\n'),
 };
-const SKIP = new Set(['node_modules', '.git', 'dist', 'graphify-out']);
+const SKIP = new Set(['node_modules', '.git', 'dist', 'graphify-out', 'vendor']); // vendor — чужой код под своей лицензией
 
 function walk(dir, out = []) {
   for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
