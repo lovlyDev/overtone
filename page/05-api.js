@@ -14,8 +14,9 @@
     const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
     // Родные запросы пропускаем сразу; карточки, статистика и синхронизация требуют проверки тела.
     const sync = url.pathname === '/collection/sync';
-    const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes/.test(url.pathname);
-    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\//.test(url.href) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
+    // Свои плейлисты: закреплённые и понравившиеся — дополняем ответ сервера.
+    const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes|^\/pins$|^\/users\/\d+\/likes\/playlists$/.test(url.pathname);
+    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);

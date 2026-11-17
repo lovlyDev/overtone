@@ -153,6 +153,21 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     return url.pathname.endsWith('/batch') ? { downloadInfos: infos } : { downloadInfo: infos[0] };
   }
 
+    /**
+     * Плейлист SoundCloud по номеру «kind». Номер больше 32 бит, а закрепление приложение шлёт
+     * уже обрезанным до 32 бит, — сравниваем и целиком, и по младшим битам.
+     */
+    const byKind = (kind) => {
+      const wanted = Number(kind);
+      if (!Number.isFinite(wanted)) return null;
+      return soundcloud.searches().find((item) => {
+        const full = parseInt(item.key, 16);
+        return full === wanted || (full | 0) === (wanted | 0);
+      }) || null;
+    };
+    const likedPlaylists = () => soundcloud.searches().filter((item) => item.liked).sort((a, b) => (b.likedAt || 0) - (a.likedAt || 0));
+    const pinnedPlaylists = () => soundcloud.searches().filter((item) => item.ymPinned).sort((a, b) => (a.pinnedAt || 0) - (b.pinnedAt || 0));
+
     /** Запрос ещё не ушёл. Возвращает true, если ответили сами. */
     async function routeRequest(params, url, fulfill, postOf) {
       const { method } = params.request;
@@ -163,9 +178,9 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return fulfill(params, await fileInfo(url));
       }
       const playlist = PLAYLIST.exec(route);
-      const owned = /^\/users\/70\/playlists\/(\d+)$/.exec(route);
+      const owned = /^\/users\/70\/playlists\/(-?\d+)$/.exec(route);
       if (playlist || owned) {
-        const entry = soundcloud.searches().find((item) => playlist ? item.key === playlist[1] : parseInt(item.key, 16) === Number(owned[1]));
+        const entry = playlist ? soundcloud.searches().find((item) => item.key === playlist[1]) : byKind(owned[1]);
         log('playlist', playlist?.[1] || owned[1], entry ? 'ok' : 'missing');
         return entry ? fulfill(params, searchPlaylist(entry)) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
       }
@@ -205,6 +220,28 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       if (lyricsText) {
         const text = lyrics?.text(toSoundcloud(lyricsText[1]), url.searchParams.get('format') === 'TEXT' ? 'TEXT' : 'LRC');
         return text ? fulfill(params, text) : fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+      }
+      // «Нравится» у плейлиста SoundCloud: сервер Яндекса про него не знает, отмечаем у себя.
+      const likeList = /^\/users\/\d+\/likes\/playlists\/(?:add|70-(-?\d+)\/remove)$/.exec(route);
+      if (likeList && method === 'POST' && (likeList[1] || url.searchParams.get('owner-uid') === '70')) {
+        const entry = byKind(likeList[1] || url.searchParams.get('kind'));
+        if (!entry) return fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+        soundcloud.mark(entry.key, likeList[1] ? { liked: false } : { liked: true, likedAt: Date.now() });
+        log('playlist-like', likeList[1] ? 'remove' : 'add', entry.key);
+        return fulfill(params, '"ok"');
+      }
+      // «Закрепить»: тело — { uid, kind }.
+      if (route === '/pin/playlist' && (method === 'PUT' || method === 'DELETE')) {
+        let body = {};
+        try {
+          body = JSON.parse((await postOf(params)) || '{}');
+        } catch {}
+        if (Number(body.uid) !== 70) return false;
+        const entry = byKind(body.kind);
+        if (!entry) return fulfill(params, { name: 'not-found', message: 'overtone' }, 404);
+        soundcloud.mark(entry.key, method === 'PUT' ? { ymPinned: true, pinnedAt: Date.now() } : { ymPinned: false });
+        log('playlist-pin', method, entry.key);
+        return fulfill(params, method === 'PUT' ? { type: 'playlist_item', data: searchPlaylist(entry) } : '"ok"');
       }
       const like = /\/likes\/tracks\/(add|[^/]+\/remove)/.exec(route);
       if (like) {
@@ -247,6 +284,14 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       if (url.pathname === '/collection/sync') for (const item of data.values?.likedTracks?.values?.liked || []) if (!isSynthetic(item.trackId)) likedYandex.add(String(item.trackId));
       if (url.pathname === '/tracks' && Array.isArray(data) && likedYandex.size) wave?.learnFromYandex(data, likedYandex);
       if (url.pathname === '/tracks' && Array.isArray(data)) video?.probe(data);
+      if (url.pathname === '/collection/sync' && data.values?.likedPlaylists?.values?.liked) {
+        const mine = likedPlaylists().map((entry) => ({ compositeData: { uid: 70, kind: parseInt(entry.key, 16), timestamp: iso(entry.likedAt || entry.at) }, info: { revision: 1, snapshot: 1 } }));
+        if (mine.length) {
+          const own = data.values.likedPlaylists.values.liked.filter((item) => item?.compositeData?.uid !== 70);
+          data.values.likedPlaylists = { ...data.values.likedPlaylists, values: { ...data.values.likedPlaylists.values, liked: [...own, ...mine] } };
+          if (!data.values.likedTracks?.values) return { body: data, status: 200 };
+        }
+      }
       if (url.pathname === '/collection/sync' && data.values?.likedTracks?.values) {
         const tracks = data.values.likedTracks;
         const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));
@@ -260,6 +305,17 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { body: { ...data, downloadInfos: data.downloadInfos.map((info) => ours.get(String(info?.trackId)) || info) }, status: 200 };
       }
       if (/\/playlist\/lk\./.test(url.pathname)) return { body: mergeLiked(data), status: 200 };
+      if (url.pathname === '/pins' && Array.isArray(data.pins)) {
+        const mine = pinnedPlaylists().map((entry) => ({ type: 'playlist_item', data: searchPlaylist(entry) }));
+        return mine.length ? { body: { ...data, pins: [...data.pins, ...mine] }, status: 200 } : null;
+      }
+      if (/^\/users\/\d+\/likes\/playlists$/.test(url.pathname) && Array.isArray(data.result) && (url.searchParams.get('page') || '0') === '0') {
+        const mine = likedPlaylists().map((entry) => ({ playlist: searchPlaylist(entry), timestamp: iso(entry.likedAt || entry.at) }));
+        if (!mine.length) return null;
+        // perPage тоже растёт: иначе приложение решит, что есть следующая страница, и обрежет первую.
+        const pager = data.pager ? { ...data.pager, total: (data.pager.total || 0) + mine.length, perPage: (data.pager.perPage || data.result.length) + mine.length } : data.pager;
+        return { body: { ...data, result: [...mine, ...data.result], ...(pager ? { pager } : {}) }, status: 200 };
+      }
       if (url.pathname.includes('/collection/playlist-with-likes') && data.summary) {
         return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };
       }

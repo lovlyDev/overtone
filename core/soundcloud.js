@@ -215,8 +215,9 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
 
   function remember(entry) {
     const rest = state.searches.filter((item) => item.key !== entry.key);
-    const pinned = rest.filter((item) => item.pinned);
-    state.searches = [entry, ...pinned, ...rest.filter((item) => !item.pinned).slice(0, KEEP_SEARCHES)];
+    const kept = (item) => item.pinned || item.liked || item.ymPinned;
+    const pinned = rest.filter(kept);
+    state.searches = [entry, ...pinned, ...rest.filter((item) => !kept(item)).slice(0, KEEP_SEARCHES)];
     save();
     prefetch(entry.ids);
     return entry;
@@ -375,6 +376,14 @@ module.exports = function createSoundcloud({ dataDir, getConfig, onUnavailable =
         state.tracks[record.id] = old && !old.pending && !record.pending ? { ...old, ...record } : record.pending && old ? old : record;
       }
       save();
+    },
+    /** Отметки плейлиста из интерфейса приложения: { liked, likedAt } или { ymPinned, pinnedAt }. */
+    mark(key, patch) {
+      const entry = state.searches.find((item) => item.key === key);
+      if (!entry) return null;
+      Object.assign(entry, patch);
+      save();
+      return entry;
     },
     /** Создаёт или обновляет закреплённый плейлист (волна и т. п.). */
     pin(entry) {
