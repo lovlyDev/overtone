@@ -687,3 +687,32 @@ html[data-ot-lite='on'] :is(#ot-settings, .ot-menu, #ot-page, [class*='PopoverWi
 @media (prefers-reduced-motion: reduce) {
   [class*='FullscreenPlayerDesktopPoster_root'] { scale: 1 !important; animation: none !important; }
 }
+
+/* ---------- Итоги прослушиваний ---------- */
+.ot-stats { display: grid; gap: 18px; padding: 6px 0 22px; }
+.ot-stats-empty { margin: 0; color: var(--ym-controls-color-primary-text-enabled); }
+.ot-stats-total { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.ot-stats-total strong { font: 700 44px/1 var(--ym-font-heading, var(--ym-font-text)); letter-spacing: -0.03em; }
+.ot-stats-total span { color: var(--ym-controls-color-primary-text-enabled); }
+.ot-stats-split { display: flex; height: 12px; border-radius: 99px; overflow: hidden; background: var(--ym-controls-color-secondary-default-enabled); }
+.ot-stats-split i { height: 100%; transition: width .5s ease; }
+.ot-stats-split .ym, .ot-stats-legend .ym::before { background: #ffdb4d; }
+.ot-stats-split .sc, .ot-stats-legend .sc::before { background: #ff7700; }
+.ot-stats-legend { display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px; color: var(--ym-controls-color-primary-text-enabled); margin-top: -8px; }
+.ot-stats-legend span::before { content: ''; display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 8px; vertical-align: 0; }
+.ot-stats-days { display: flex; align-items: flex-end; gap: 4px; height: 72px; }
+.ot-stats-days i { flex: 1; min-width: 3px; border-radius: 4px 4px 2px 2px; background: var(--ym-controls-color-secondary-default-enabled); transition: background .15s; }
+.ot-stats-days i:last-child { background: #ffdb4d; }
+.ot-stats-days i:hover { background: #fff; }
+.ot-stats-tops { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+@media (max-width: 1100px) { .ot-stats-tops { grid-template-columns: 1fr; } }
+.ot-stats-top { display: grid; gap: 10px; align-content: start; }
+.ot-stats-top > b { font-size: 16px; }
+.ot-stats-row { display: grid; grid-template-columns: 18px minmax(0, 1.4fr) minmax(40px, 1fr) auto; gap: 12px; align-items: center; font-size: 14px; }
+.ot-stats-row em { font-style: normal; color: var(--ym-controls-color-primary-text-enabled); text-align: right; }
+.ot-stats-row .name { display: grid; min-width: 0; }
+.ot-stats-row .name span, .ot-stats-row .name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ot-stats-row .name small { color: var(--ym-controls-color-primary-text-enabled); font-size: 12px; }
+.ot-stats-row .bar { height: 6px; border-radius: 99px; background: var(--ym-controls-color-secondary-default-enabled); overflow: hidden; }
+.ot-stats-row .bar i { display: block; height: 100%; border-radius: 99px; background: #ffdb4d; }
+.ot-stats-row .time { color: var(--ym-controls-color-primary-text-enabled); white-space: nowrap; font-variant-numeric: tabular-nums; }

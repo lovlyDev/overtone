@@ -74,6 +74,71 @@
     // Прокси часто с логином и паролем: на экране не показываем.
     const proxy = el('input', { className: 'ot-input', type: 'password', placeholder: 'socks5://127.0.0.1:1080', value: ot.config.proxy || '' });
     proxy.addEventListener('change', () => ot.set({ proxy: proxy.value.trim() }));
+    // ---------- итоги ----------
+    const hours = (ms) => {
+      const minutes = Math.round(ms / 60000);
+      if (minutes < 1) return ms > 0 ? 'меньше минуты' : '0 мин';
+      const h = Math.floor(minutes / 60);
+      return h ? `${h} ч ${minutes % 60} мин` : `${minutes} мин`;
+    };
+    const statsBox = el('div', { className: 'ot-stats' });
+    const PERIODS = [['week', 'Неделя'], ['month', 'Месяц'], ['all', 'Всё время']];
+    const paintStats = async (period) => {
+      ot.statsPeriod = period;
+      const data = await window.overtone.stats?.(period).catch(() => null);
+      if (!data) return;
+      const tabs = el('div', { className: 'ot-pills' }, PERIODS.map(([value, label]) => {
+        const pill = el('button', { type: 'button', className: 'ot-pill', textContent: label });
+        pill.dataset.active = String(value === period);
+        pill.addEventListener('click', () => paintStats(value));
+        return pill;
+      }));
+      if (!data.total) {
+        statsBox.replaceChildren(tabs, el('p', { className: 'ot-stats-empty', textContent: 'Пока пусто. Включи музыку — итоги начнут копиться здесь.' }));
+        return;
+      }
+      const share = (part) => `${Math.max(0, Math.min(100, (part / data.total) * 100)).toFixed(1)}%`;
+      const split = el('div', { className: 'ot-stats-split' }, [
+        el('i', { className: 'ym', style: `width:${share(data.ym)}` }),
+        el('i', { className: 'sc', style: `width:${share(data.sc)}` }),
+      ]);
+      const legend = el('div', { className: 'ot-stats-legend' }, [
+        el('span', { className: 'ym', textContent: `Яндекс Музыка · ${hours(data.ym)}` }),
+        el('span', { className: 'sc', textContent: `SoundCloud · ${hours(data.sc)}` }),
+      ]);
+      const most = Math.max(...data.days.map((day) => day.ms), 1);
+      const chart = data.days.length
+        ? el('div', { className: 'ot-stats-days', title: 'По дням' }, data.days.map((day) => {
+            const bar = el('i', { style: `height:${Math.max(2, (day.ms / most) * 100)}%` });
+            bar.title = `${new Date(day.date).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })} — ${hours(day.ms)}`;
+            return bar;
+          }))
+        : null;
+      const top = (title, items, label) =>
+        el('div', { className: 'ot-stats-top' }, [
+          el('b', { textContent: title }),
+          ...items.map((item, index) =>
+            el('div', { className: 'ot-stats-row' }, [
+              el('em', { textContent: String(index + 1) }),
+              el('span', { className: 'name' }, label(item)),
+              el('span', { className: 'bar' }, [el('i', { style: `width:${((item.ms / items[0].ms) * 100).toFixed(1)}%` })]),
+              el('span', { className: 'time', textContent: hours(item.ms) }),
+            ])),
+        ]);
+      statsBox.replaceChildren(
+        tabs,
+        el('div', { className: 'ot-stats-total' }, [el('strong', { textContent: hours(data.total) }), el('span', { textContent: period === 'all' ? 'музыки за всё время' : period === 'month' ? 'музыки за 30 дней' : 'музыки за 7 дней' })]),
+        split,
+        legend,
+        ...(chart ? [chart] : []),
+        el('div', { className: 'ot-stats-tops' }, [
+          top('Исполнители', data.artists, (item) => [el('span', { textContent: item.name })]),
+          top('Треки', data.tracks, (item) => [el('span', { textContent: item.title }), el('small', { textContent: `${item.artist}${item.sc ? ' · SC' : ''}` })]),
+        ]),
+      );
+    };
+    paintStats(ot.statsPeriod || 'week');
+
     // ---------- кеш ----------
     const size = (bytes) => (bytes >= 1024 ** 3 ? `${(bytes / 1024 ** 3).toFixed(1).replace('.', ',')} ГБ` : bytes < 1048576 ? 'меньше 1 МБ' : `${Math.round(bytes / 1048576)} МБ`);
     const audioInfo = el('span', { textContent: '…' });
@@ -207,6 +272,8 @@
     close.addEventListener('click', toggleOpen);
     return el('div', { id: 'ot-settings' }, [
       el('header', {}, [el('b', { textContent: 'Overtone' }), close]),
+      section('Итоги'),
+      statsBox,
       section('Вид'),
       row('Тема', 'Mica и Acrylic работают на Windows 11.', pills),
       row('Живой фон', 'В полноэкранном плеере, когда нет клипа: цвета обложки двигаются под музыку.', toggle('liveBackground')),

@@ -19,6 +19,7 @@ const createDiscord = require('./discord');
 const createWave = require('./wave');
 const createLyrics = require('./lyrics');
 const createCovers = require('./covers');
+const createStats = require('./stats');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -68,6 +69,8 @@ module.exports = function start({ dataDir, root }) {
   wave = createWave({ dataDir, soundcloud, getConfig: () => config });
   const media = createMedia({ soundcloud });
   const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
+  // Трек с SoundCloud — свой (номер 70…) или серый трек Яндекса, который играет с SoundCloud.
+  const stats = createStats({ dataDir, isSoundcloud: (track) => /^70\d{11}$/.test(String(track.id)) || Boolean(replace?.sourceFor?.(String(track.id))) });
   const lyrics = createLyrics({ dataDir });
   const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast?.('overtone:video-known', video.known()) });
   // Для обложки из клипа: номер ролика YouTube, который нашла разведка клипов.
@@ -183,6 +186,7 @@ module.exports = function start({ dataDir, root }) {
     }
     discord.update(state);
     wave.observe(state);
+    stats.observe(state);
   });
   ipcMain.on('overtone:pause', () => system.playerAction('PAUSE'));
   ipcMain.handle('overtone:lastfm-login', () => lastfm.startLogin());
@@ -229,6 +233,8 @@ module.exports = function start({ dataDir, root }) {
   });
   // Автопочинка: Яндекс Музыка обновляется, пока закрыта, и при этом стирает мод. После каждого закрытия
   // установщик несколько минут в фоне ждёт: если приложение обновилось, ставит мод обратно и открывает его.
+  app.on('will-quit', () => stats.save());
+  ipcMain.handle('overtone:stats', (_event, period) => stats.summary(period));
   app.on('will-quit', () => {
     const installer = path.join(dataDir, 'Overtone.exe');
     if (!fs.existsSync(installer) || fs.existsSync(path.join(dataDir, 'dev-path.txt')) || release.updating) return;
