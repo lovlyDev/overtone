@@ -55,6 +55,8 @@
     window.overtone.reportPlaying({
       playing: isPlaying(),
       position: ot.position(),
+      // Точное время из самого <audio>: позиция плеера запаздывает и в свёрнутом окне может замирать.
+      clock: ot.clock?.()?.time ?? null,
       track: track ? { key: `${track.id}|${track.title}`, id: track.id, title: track.title, artist: track.artist, durationMs: track.durationMs, cover: track.cover } : null,
     });
   });

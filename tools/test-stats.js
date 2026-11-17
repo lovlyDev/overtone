@@ -40,9 +40,24 @@ for (let t = 0; t <= 30; t += 0.5) {
   now += 500;
 }
 
+// Точное время <audio> на миг пропало (трек догружается): позиция плеера отстаёт на 4 с, но прослушанное не теряется.
+const exact = { id: '202', title: 'Точный', artist: 'Кто-то' };
+const reportExact = (clock, position) => stats.observe({ playing: true, position, clock, track: exact });
+reportExact(10, 6);
+now += 1000;
+reportExact(11, 7);
+now += 1000;
+reportExact(null, 8);
+now += 1000;
+reportExact(13, 9);
+now += 1000;
+reportExact(14, 10);
+const exactMs = stats.summary('week').tracks.find((item) => item.title === 'Точный')?.ms;
+assert.strictEqual(exactMs, 4000, `точное время: ${exactMs} мс вместо 4000`);
+
 const week = stats.summary('week');
 const minutes = (ms) => Math.round(ms / 1000);
-assert.strictEqual(week.ym, (60 + 0.5 + 60) * 1000, `Яндекс: ${minutes(week.ym)} с`);
+assert.strictEqual(week.ym, (60 + 0.5 + 60 + 4) * 1000, `Яндекс: ${minutes(week.ym)} с`);
 assert.strictEqual(week.sc, 30_000, `SoundCloud: ${minutes(week.sc)} с`);
 assert.strictEqual(week.total, week.ym + week.sc);
 assert.strictEqual(week.artists[0].name, 'Артист', 'у исполнителя, который есть в обоих треках, больше всего времени');

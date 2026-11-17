@@ -149,6 +149,22 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     return failure.replace(/^ERROR:\s*/, '').slice(0, 200);
   }
 
+  /**
+   * Удалить файлы клипа, но помнить о нём: номер ролика (значок «есть клип» и повторная загрузка без поиска),
+   * «не тот клип» и найденный сдвиг остаются.
+   */
+  function forget(key) {
+    const item = index[key];
+    if (!item) return;
+    for (const file of [item.file, item.audio]) {
+      try {
+        if (file) fs.rmSync(file, { force: true });
+      } catch {}
+    }
+    const { file, audio, kind, ...known } = item;
+    index[key] = known;
+  }
+
   function trim() {
     const limit = (Number(getConfig().videoCacheMb) || 1024) * 1024 * 1024;
     const items = Object.entries(index)
@@ -158,9 +174,7 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
     let total = items.reduce((sum, item) => sum + item.size, 0);
     for (const item of items) {
       if (total <= limit) break;
-      fs.rmSync(item.file, { force: true });
-      if (item.audio) fs.rmSync(item.audio, { force: true });
-      delete index[item.key];
+      forget(item.key);
       total -= item.size;
     }
   }
@@ -476,8 +490,8 @@ module.exports = function createVideo({ dataDir, getConfig, onChange = () => {} 
       saveIndex();
     },
     clear() {
-      fs.rmSync(cacheDir, { recursive: true, force: true });
-      index = {};
+      for (const key of Object.keys(index)) forget(key);
+      saveIndex();
       onChange();
     },
   };

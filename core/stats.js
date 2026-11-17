@@ -58,16 +58,24 @@ module.exports = function createStats({ dataDir, isSoundcloud }) {
       last = null;
       return;
     }
-    const position = typeof state.position === 'number' ? state.position : null;
+    // Сравниваем время только из одного источника: точное из <audio> и запаздывающая позиция плеера
+    // расходятся на секунды, и переход между ними съедал бы прослушанное.
+    const source = typeof state.clock === 'number' ? 'clock' : typeof state.position === 'number' ? 'position' : null;
+    const position = source ? state[source] : null;
     if (last && last.key === key) {
-      const wall = (now - last.at) / 1000;
-      if (position !== null && last.position !== null) {
-        const moved = position - last.position;
-        // Назад или скачок дальше, чем прошло времени, — это перемотка, её не засчитываем.
-        if (moved > 0 && moved <= wall + 1.5) credit(track, moved);
-      } else credit(track, Math.min(wall, 1.5));
+      if (source && last.source && source !== last.source) {
+        // Точного времени нет (трек догружается) — ждём следующего отчёта с ним, промежуток не теряется.
+        if (last.source === 'clock') return;
+      } else {
+        const wall = (now - last.at) / 1000;
+        if (position !== null && last.position !== null) {
+          const moved = position - last.position;
+          // Назад или скачок дальше, чем прошло времени, — это перемотка, её не засчитываем.
+          if (moved > 0 && moved <= wall + 1.5) credit(track, moved);
+        } else credit(track, Math.min(wall, 1.5));
+      }
     }
-    last = { key, position, at: now };
+    last = { key, position, source, at: now };
   }
 
   /** Итоги за 'week' (7 дней), 'month' (30 дней) или 'all'. */
