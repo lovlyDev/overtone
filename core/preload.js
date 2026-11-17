@@ -122,7 +122,6 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
       list: () => ipcRenderer.invoke('overtone:transfer-list'),
       onProgress: (listener) => ipcRenderer.on('overtone:transfer-progress', (_event, text) => listener(text)),
     },
-    loadVendor: () => ipcRenderer.invoke('overtone:vendor'),
     stats: (period) => ipcRenderer.invoke('overtone:stats', period),
     cache: {
       stats: () => ipcRenderer.invoke('overtone:cache-stats'),

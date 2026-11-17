@@ -13,6 +13,8 @@
   const CHUNK = 100;
 
   ot.transferUuids = new Set();
+  let progress = () => {};
+  window.overtone.transfer?.onProgress((text) => progress(text));
   window.overtone.transfer?.list().then((list) => list.forEach((uuid) => ot.transferUuids.add(uuid))).catch(() => {});
 
   /** Запрос к API Яндекс Музыки от имени приложения (заголовки входа подсмотрены у его же запросов). */
@@ -20,11 +22,16 @@
     if (!ot.ymHeaders) throw new Error('не вижу вход в Яндекс Музыку — открой любой раздел приложения и попробуй снова');
     const url = new URL(`${API}${path}`);
     for (const [key, value] of Object.entries(query)) url.searchParams.set(key, value);
-    const headers = new Headers(ot.ymHeaders);
-    headers.delete('content-type');
+    // Только вход и данные приложения; номер запроса у каждого свой, иначе API может счесть запросы повтором.
+    const headers = new Headers();
+    for (const name of ['authorization', 'x-yandex-music-client', 'x-yandex-music-device', 'accept-language', 'x-yandex-music-without-invocation-info']) {
+      const value = ot.ymHeaders.get(name);
+      if (value) headers.set(name, value);
+    }
+    headers.set('x-request-id', crypto.randomUUID());
     if (form) headers.set('content-type', 'application/x-www-form-urlencoded');
     const response = await fetch(url, { method, headers, body: form ? new URLSearchParams(form).toString() : undefined });
-    if (!response.ok) throw new Error(`Яндекс Музыка ответила ${response.status}`);
+    if (!response.ok) throw Object.assign(new Error(`Яндекс Музыка ответила ${response.status}`), { status: response.status });
     const data = await response.json();
     return data?.result ?? data;
   }
@@ -34,7 +41,7 @@
    * Возвращает { uuid, title, found, total, sc, missing, limited }.
    */
   ot.transfer = async (link, onProgress = () => {}) => {
-    window.overtone.transfer.onProgress?.((text) => onProgress(text));
+    progress = onProgress;
     const plan = await window.overtone.transfer.prepare(link);
     const matched = plan.tracks.filter((track) => track.ym || track.sc);
     if (!matched.length) throw new Error('ни один трек не нашёлся ни в Яндексе, ни на SoundCloud');
@@ -50,10 +57,17 @@
       const list = missing.map((track) => `${track.artist} — ${track.title}`).join('; ');
       description += ` Не нашлись (${missing.length}): ${list}`;
     }
-    const playlist = await call(`/users/${ot.ymUid}/playlists/create`, {
-      query: { title: plan.title.slice(0, 120), visibility: 'private', description: description.slice(0, 1000) },
-    });
-    if (!playlist?.kind) throw new Error('Яндекс Музыка не создала плейлист');
+    const create = (query) => call(`/users/${ot.ymUid}/playlists/create`, { query });
+    const base = { title: plan.title.slice(0, 120), visibility: 'private' };
+    let playlist;
+    try {
+      playlist = await create({ ...base, description: description.slice(0, 1000) });
+    } catch (error) {
+      // Длинное описание сервер может не принять — тогда без него.
+      if (error.status !== 400) throw error;
+      playlist = await create(base);
+    }
+    if (!playlist?.kind || !playlist.playlistUuid) throw new Error('Яндекс Музыка не создала плейлист');
 
     // Треки Яндекса — порциями по сотне, по порядку.
     const ym = matched.filter((track) => track.ym).map((track) => ({ id: track.ym.id, albumId: track.ym.albumId }));

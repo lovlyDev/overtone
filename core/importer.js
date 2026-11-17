@@ -34,11 +34,16 @@ const artistsOf = (text) =>
     .map(plain)
     .filter(Boolean);
 
+/** Пометки переделок: если их нет в исходном названии, это не тот трек, а чья-то версия. */
+const VARIANT = /\b(slowed|sped ?up|speed ?up|nightcore|reverb|8d|bass ?boost(ed)?|cover|karaoke|instrumental|minus|минус|live|remix|lyrics?|текст|мэшап|mashup|edit)\b/i;
+
 /** Насколько найденный трек похож на искомый: 0 — не он. */
 function score(found, wanted) {
   const title = plain(found.title);
   const want = plain(wanted.title);
   if (!title || !want) return 0;
+  const variant = VARIANT.exec(found.title);
+  if (variant && !new RegExp(`\\b${variant[1]}\\b`, 'i').test(wanted.title)) return 0;
   let points = 0;
   if (title === want) points += 4;
   else if (title.includes(want) || want.includes(title)) points += 2;
@@ -212,7 +217,12 @@ function createImporter({ soundcloud, fetch = (...args) => electron().net.fetch(
     let best = null;
     let top = 0;
     for (const item of results) {
-      const points = score({ title: item.title, artist: item.artist, durationMs: item.durationMs }, track);
+      // На SoundCloud полно перезаливов и рипов: длина должна совпадать почти точно.
+      if (item.durationMs && track.durationMs && Math.abs(item.durationMs - track.durationMs) > 6000) continue;
+      // На SoundCloud трек часто залит как «Исполнитель - Название» с чужого аккаунта.
+      const split = /^(.+?)\s+[-–—]\s+(.+)$/.exec(item.title || '');
+      const variants = [{ title: item.title, artist: item.artist }, ...(split ? [{ title: split[2], artist: `${split[1]}, ${item.artist}` }] : [])];
+      const points = Math.max(...variants.map((variant) => score({ ...variant, durationMs: item.durationMs }, track)));
       if (points > top) {
         top = points;
         best = item;
@@ -220,7 +230,7 @@ function createImporter({ soundcloud, fetch = (...args) => electron().net.fetch(
     }
     if (top < 6 || !best) return null;
     soundcloud.addTracks([best]);
-    return String(best.id);
+    return { id: String(best.id), title: best.title, artist: best.artist, durationMs: best.durationMs };
   }
 
   /** Очередь с ограничением одновременных задач. */
@@ -264,7 +274,7 @@ function createImporter({ soundcloud, fetch = (...args) => electron().net.fetch(
       service: source.service,
       title: source.title,
       limited: Boolean(source.limited),
-      tracks: result.map((item, index) => ({ index, title: item.title, artist: item.artist, ym: item.ym, sc: item.sc })),
+      tracks: result.map((item, index) => ({ index, title: item.title, artist: item.artist, durationMs: item.durationMs, ym: item.ym, sc: item.sc?.id || null, scFound: item.sc })),
     };
   }
 

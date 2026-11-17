@@ -729,7 +729,7 @@ html[data-ot-lite='on'] :is(#ot-settings, .ot-menu, #ot-page, [class*='PopoverWi
   z-index: -2;
   overflow: hidden;
   pointer-events: none;
-  background: #000;
+  background: radial-gradient(ellipse at 50% 45%, #15151a, #08080a 70%);
   animation: ot-live-in 1.2s ease-out;
 }
 #ot-viz { position: absolute; inset: 0; width: 100%; height: 100%; }

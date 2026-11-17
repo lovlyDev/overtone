@@ -49,8 +49,8 @@ const DEFAULTS = {
   discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
   discordClientId: '', // свой ID приложения; пусто — берётся из package.json
   liveBackground: true, // живой фон в полноэкранном плеере, когда нет клипа
-  visualizer: false, // визуализатор MilkDrop (Butterchurn) в полноэкранном плеере вместо живого фона
-  visualizerAuto: 30, // через сколько секунд менять визуализацию; 0 — только вручную (клавиша V)
+  visualizer: false, // минималистичный визуализатор в полноэкранном плеере вместо живого фона
+  visualizerStyle: 'bars', // bars | line | ring | dots | waves; клавиша V — следующий
   thumbar: true, // кнопки «назад / пауза / вперёд» в превью окна на панели задач
   lite: false, // режим экономии: без живого фона, размытий и преломления — для слабых компьютеров
   lastfm: { apiKey: '', secret: '', session: '', user: '', enabled: false },
@@ -237,12 +237,6 @@ module.exports = function start({ dataDir, root }) {
   // Автопочинка: Яндекс Музыка обновляется, пока закрыта, и при этом стирает мод. После каждого закрытия
   // установщик несколько минут в фоне ждёт: если приложение обновилось, ставит мод обратно и открывает его.
   app.on('will-quit', () => stats.save());
-  // Движок визуализатора — чужой код из page/vendor, выполняется в странице только по просьбе, по белому списку.
-  const VENDOR = ['butterchurn.min.js', 'butterchurn-presets.min.js', 'butterchurn-presets-extra.min.js'];
-  ipcMain.handle('overtone:vendor', async (event) => {
-    for (const name of VENDOR) await event.sender.executeJavaScript(`${fs.readFileSync(path.join(pageDir, 'vendor', name), 'utf8')}\n//# sourceURL=overtone/vendor/${name}`);
-    return true;
-  });
   const importer = createImporter({ soundcloud });
   ipcMain.handle('overtone:transfer-prepare', (event, link) => importer.prepare(link, (text) => !event.sender.isDestroyed() && event.sender.send('overtone:transfer-progress', text)));
   ipcMain.handle('overtone:transfer-extras', (_event, uuid, extras) => api.setTransfer(uuid, extras));
