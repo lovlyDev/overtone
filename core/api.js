@@ -395,5 +395,22 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     return (await routeRequest(params, url, reply, async () => params.request.postData)) || null;
   }
 
-  return { resolve, isSynthetic, uuidOf, setTransfer, transferUuids: () => Object.keys(transfers) };
+  // С 5.128 плеер использует ресурсный API: данные те же, но маршрут и названия полей другие.
+  // Нормализуем их на входе, чтобы старые версии и замены треков проходили один маршрутизатор.
+  async function resolveResource(request) {
+    const url = new URL(request.url);
+    const resource = /^\/resources\/v2\/file-info(\/batch)?$/.exec(url.pathname);
+    if (!resource) return resolve(request);
+    url.pathname = `/get-file-info${resource[1] || ''}`;
+    const response = request.response;
+    const reply = await resolve({ ...request, url: url.href, ...(response === undefined ? {} : {
+      response: { ...response, ...(response.fileInfos ? { downloadInfos: response.fileInfos } : {}), ...(response.fileInfo ? { downloadInfo: response.fileInfo } : {}) },
+    }) });
+    if (!reply?.body) return reply;
+    const { downloadInfo, downloadInfos, ...rest } = reply.body;
+    // Одиночный ресурс возвращает карточку напрямую; fileInfo добавляет уже клиент приложения.
+    return { ...reply, body: downloadInfo === undefined ? { ...rest, ...(downloadInfos === undefined ? {} : { fileInfos: downloadInfos }) } : downloadInfo };
+  }
+
+  return { resolve: resolveResource, isSynthetic, uuidOf, setTransfer, transferUuids: () => Object.keys(transfers) };
 };

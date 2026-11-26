@@ -23,7 +23,7 @@
     const sync = url.pathname === '/collection/sync';
     // Свои плейлисты: закреплённые и понравившиеся — дополняем ответ сервера.
     const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes|^\/pins$|^\/users\/\d+\/likes\/playlists$/.test(url.pathname) || Boolean(ot.transferUuids?.has(url.pathname.split('/')[2]) && url.pathname.startsWith('/playlist/'));
-    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
+    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !url.pathname.startsWith('/resources/v2/file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);
@@ -76,7 +76,7 @@
     // Конструктор Request забирает поток тела у исходного Request.
     // После проверки передаём дальше уже созданный объект, иначе родная порция остаётся без тела.
     if (!reply) return original.call(this, request);
-    for (const info of reply.body?.downloadInfos || [reply.body?.downloadInfo]) {
+    for (const info of reply.body?.downloadInfos || reply.body?.fileInfos || [reply.body?.downloadInfo || reply.body?.fileInfo || reply.body]) {
       if (info?.error && /^70\d{11}$/.test(String(info.trackId))) {
         ot.emit('sc-unavailable', { id: String(Number(info.trackId) - 7000000000000), message: 'Трек недоступен в SoundCloud', at: Date.now() });
       }

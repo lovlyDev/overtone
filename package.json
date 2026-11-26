@@ -1,6 +1,6 @@
 {
   "name": "overtone",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Мод для десктопной Яндекс Музыки: SoundCloud внутри, клипы, темы, эквалайзер, живой фон",
   "author": "lovlyDev",
   "homepage": "https://github.com/lovlyDev/overtone",
@@ -11,7 +11,8 @@
     "repo": "lovlyDev/overtone",
     "discordClientId": "1571978954707832832",
     "ymTested": [
-      "5.127.0"
+      "5.127.0",
+      "5.128.0"
     ]
   },
   "scripts": {
