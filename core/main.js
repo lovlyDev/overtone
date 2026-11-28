@@ -6,7 +6,7 @@
 // Главный процесс Overtone. Запускается до кода приложения.
 const fs = require('fs');
 const path = require('path');
-const { app, session, ipcMain, BrowserWindow, shell } = require('electron');
+const { app, session, ipcMain, BrowserWindow, shell, dialog } = require('electron');
 const createVideo = require('./video');
 const createSoundcloud = require('./soundcloud');
 const createMedia = require('./media');
@@ -21,6 +21,7 @@ const createLyrics = require('./lyrics');
 const createCovers = require('./covers');
 const createStats = require('./stats');
 const createImporter = require('./importer');
+const createLocal = require('./local');
 const { spawn } = require('child_process');
 
 const DEFAULTS = {
@@ -44,6 +45,26 @@ const DEFAULTS = {
   eqPreset: 'flat', // см. page/70-audio.js
   eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
   loudness: 'off', // off | normal | loud | max
+  crossfadeSeconds: 0, // 0 — без переходов; 1…12 — длительность перекрытия
+  crossfadeProfile: 'balanced', // balanced | gentle | quick | custom
+  crossfadeInSeconds: 5,
+  crossfadeOutSeconds: 5,
+  transitionMode: 'legacy', // прежний выбор определяется сохранённой длительностью
+  djPosition: 'end',
+  djMinPercent: 75,
+  djBars: 0,
+  djFallbackSeconds: 4,
+  djTempo: true,
+  djBass: true,
+  djEcho: true,
+  bassTransitionSeconds: 4,
+  bassTransitionPoint: 50,
+  bassTransitionHz: 120,
+  echoTransitionSeconds: 1.6,
+  echoDelayMs: 320,
+  echoRepeats: 3,
+  echoWetPercent: 30,
+  gaplessTrim: false,
   ymLyrics: true, // тексты из LRCLIB для треков Яндекса без своего текста
   waveMood: 'favorite', // характер волны SoundCloud: favorite | discover | popular
   discord: true, // статус «Слушает …» в Discord (нужен ID приложения, docs/discord.md)
@@ -70,7 +91,8 @@ module.exports = function start({ dataDir, root }) {
   let wave = null;
   const soundcloud = createSoundcloud({ dataDir, getConfig: () => config, onUnavailable: (failure) => broadcast('overtone:sc-unavailable', failure), extraKeep: () => wave?.keep() || [] });
   wave = createWave({ dataDir, soundcloud, getConfig: () => config });
-  const media = createMedia({ soundcloud });
+  const local = createLocal({ dataDir, onChange: (state) => broadcast('overtone:local-progress', state) });
+  const media = createMedia({ soundcloud, local });
   const replace = createReplace({ soundcloud, getConfig: () => config, dataDir });
   // Трек с SoundCloud — свой (номер 70…) или серый трек Яндекса, который играет с SoundCloud.
   const stats = createStats({ dataDir, isSoundcloud: (track) => /^70\d{11}$/.test(String(track.id)) || Boolean(replace?.sourceFor?.(String(track.id))) });
@@ -78,7 +100,7 @@ module.exports = function start({ dataDir, root }) {
   const video = createVideo({ dataDir, getConfig: () => config, onChange: () => broadcast?.('overtone:video-known', video.known()) });
   // Для обложки из клипа: номер ролика YouTube, который нашла разведка клипов.
   const covers = createCovers({ dataDir, youtubeOf: (scId) => video.youtubeOf(String(7_000_000_000_000 + Number(scId))) });
-  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave, lyrics, video, covers });
+  const api = createApi({ dataDir, soundcloud, media, getConfig: () => config, replace, wave, lyrics, video, covers, local });
   const windows = new Set();
   const broadcast = (channel, data) => {
     for (const win of windows) if (!win.isDestroyed()) win.webContents.send(channel, data);
@@ -91,7 +113,7 @@ module.exports = function start({ dataDir, root }) {
   };
   const release = createRelease({ root, dataDir });
   const discord = createDiscord({ getConfig: () => config, defaultClientId: JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).overtone?.discordClientId });
-  const system = createSystem({ getConfig: () => config, windows, broadcast });
+  const system = createSystem({ getConfig: () => config, windows, broadcast, localCoverUrl: (id) => media.coverUrl(id) });
   const lastfm = createLastfm({ getConfig: () => config, setConfig: saveConfig });
 
   const pageDir = path.join(root, 'page');
@@ -100,9 +122,12 @@ module.exports = function start({ dataDir, root }) {
     return {
       css: names.filter((n) => n.endsWith('.css')).map((n) => fs.readFileSync(path.join(pageDir, n), 'utf8')).join('\n'),
       // Каждый модуль выполняется отдельно: у ошибки будет своё имя файла, и она не остановит остальные.
-      scripts: names
-        .filter((n) => n.endsWith('.js'))
-        .map((n) => ({ name: n, code: `${fs.readFileSync(path.join(pageDir, n), 'utf8')}\n//# sourceURL=overtone/${n}` })),
+      scripts: [
+        { name: 'fade.js', code: require('./fade').browserSource },
+        { name: 'mix.js', code: require('./mix').browserSource },
+        ...names.filter((n) => n.endsWith('.js'))
+          .map((n) => ({ name: n, code: `${fs.readFileSync(path.join(pageDir, n), 'utf8')}\n//# sourceURL=overtone/${n}` })),
+      ],
     };
   };
 
@@ -203,6 +228,29 @@ module.exports = function start({ dataDir, root }) {
   // Поиск возвращает ключ страницы: приложение откроет её как обычный плейлист, а данные подставит core/api.js.
   ipcMain.handle('overtone:sc-search', async (_event, query) => api.uuidOf((await soundcloud.search(query)).key));
   ipcMain.handle('overtone:sc-recent', () => soundcloud.searches().map((item) => ({ uuid: api.uuidOf(item.key), query: item.kind ? item.title : item.import ? item.title : item.link ? `${item.title} · ссылка` : item.query, pinned: Boolean(item.pinned) })));
+  ipcMain.handle('overtone:local-state', () => local.snapshot());
+  ipcMain.handle('overtone:mix-source', async (_event, key) => {
+    const id = String(key);
+    await media.ready;
+    if (local.isLocal(id) && local.track(id)) return { url: media.localUrl(id), version: local.track(id).mtimeMs };
+    if (/^70\d{11}$/.test(id) && soundcloud.track(String(Number(id) - 7_000_000_000_000))) {
+      return { url: media.url(String(Number(id) - 7_000_000_000_000)), version: config.scQuality };
+    }
+    return null;
+  });
+  ipcMain.handle('overtone:local-artwork', (_event, id) => local.artwork(String(id)));
+  ipcMain.handle('overtone:local-rescan', () => local.rescan());
+  ipcMain.handle('overtone:local-cancel', () => local.cancel());
+  ipcMain.handle('overtone:local-remove', (_event, id) => { local.remove(String(id)); return local.snapshot(); });
+  ipcMain.handle('overtone:local-import', async (event, folders) => {
+    const options = folders
+      ? { title: 'Добавить папки с музыкой', properties: ['openDirectory', 'multiSelections'] }
+      : { title: 'Добавить MP3 и FLAC', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Музыка', extensions: ['mp3', 'flac'] }] };
+    const win = BrowserWindow.fromWebContents(event.sender);
+    const result = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options);
+    if (result.canceled) return { ...local.snapshot(), cancelled: true };
+    return local.scan(result.filePaths);
+  });
   ipcMain.handle('overtone:api', (_event, request) => api.resolve(request));
   ipcMain.handle('overtone:video-stats', () => video.stats());
   ipcMain.handle('overtone:video-known', () => video.known());

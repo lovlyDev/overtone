@@ -1,6 +1,6 @@
 {
   "name": "overtone",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "description": "Мод для десктопной Яндекс Музыки: SoundCloud внутри, клипы, темы, эквалайзер, живой фон",
   "author": "lovlyDev",
   "homepage": "https://github.com/lovlyDev/overtone",
@@ -11,7 +11,6 @@
     "repo": "lovlyDev/overtone",
     "discordClientId": "1571978954707832832",
     "ymTested": [
-      "5.127.0",
       "5.128.0"
     ]
   },
@@ -22,7 +21,7 @@
     "status": "node patcher/cli.js status",
     "ytdlp": "node patcher/cli.js ytdlp",
     "check": "node tools/check.js",
-    "test": "node tools/check.js && node tools/headers.js --check && node tools/test-api.js && node tools/test-fetch.js && node tools/test-soundcloud.js && node tools/test-recovery.js && node tools/test-replace.js && node tools/test-stats.js && node tools/test-import.js",
+    "test": "node tools/check.js && node tools/headers.js --check && node tools/test-api.js && node tools/test-fetch.js && node tools/test-soundcloud.js && node tools/test-recovery.js && node tools/test-replace.js && node tools/test-stats.js && node tools/test-import.js && node tools/test-local.js && node tools/test-local-api.js && node tools/test-mix.js",
     "build": "node installer/build.js",
     "compat": "node tools/compat.js"
   }

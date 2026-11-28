@@ -335,6 +335,12 @@ html[data-ot-video='on'] [data-test-id='FULLSCREEN_PLAYER_MODAL'] :is(
 .ot-clip svg { display: block; height: 13px; width: auto; }
 
 /* ---------- SoundCloud ---------- */
+#ot-local-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-block: 14px; font: 13px var(--ym-font-text); }
+#ot-local-toolbar [role='status'] { flex-basis: 100%; opacity: 0.72; padding-block: 4px; }
+#ot-local-toolbar button:disabled { opacity: 0.5; cursor: wait; }
+.ot-local-remove { border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; width: 32px; height: 32px; flex: none; opacity: 0.55; font-size: 22px; }
+.ot-local-remove:hover { opacity: 1; background: rgb(128 128 128 / 0.16); }
+#ot-local-nav a[aria-current='page'] { color: var(--ym-controls-color-primary-default-enabled); }
 #ot-sc-notice {
   position: fixed;
   z-index: 750;
@@ -663,6 +669,12 @@ html:is([data-ot-theme='glass'], [data-ot-theme='mica'], [data-ot-theme='acrylic
 #ot-page .ot-section { margin: 28px 0 6px; font: 700 20px var(--ym-font-heading, var(--ym-font-text)); letter-spacing: -0.01em; text-transform: none; color: var(--ym-controls-color-secondary-text-enabled_variant); }
 #ot-page .ot-section:first-of-type { margin-top: 0; }
 #ot-page .ot-row { padding: 14px 0; border-bottom: 1px solid var(--ym-outline-color-primary-disabled); }
+#ot-page .ot-page-body { overflow-anchor: none; }
+#ot-page [data-mix-status] { max-inline-size: 22ch; font-size: 12px; }
+#ot-page :is(.ot-dropdown, [data-mix-preview]):focus-visible, .ot-menu button:focus-visible {
+  outline: 2px solid var(--ym-controls-color-primary-text-enabled, currentColor);
+  outline-offset: -2px;
+}
 #ot-page .ot-row-text b { font-weight: 500; font-size: 15px; }
 #ot-page .ot-row-text span { font-size: 13px; max-width: 420px; }
 #ot-button[data-active='true'] { box-shadow: 0 0 0 2px rgb(255 255 255 / 0.5); }

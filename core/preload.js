@@ -89,6 +89,16 @@ if (!/^(https?|file|devtools|about|chrome):/.test(location.href)) {
       onUnavailable: (listener) => ipcRenderer.on('overtone:sc-unavailable', (_event, failure) => listener(failure)),
     },
     api: (request) => ipcRenderer.invoke('overtone:api', request),
+    mixSource: (id) => ipcRenderer.invoke('overtone:mix-source', String(id)),
+    local: {
+      state: () => ipcRenderer.invoke('overtone:local-state'),
+      import: (folders = false) => ipcRenderer.invoke('overtone:local-import', Boolean(folders)),
+      rescan: () => ipcRenderer.invoke('overtone:local-rescan'),
+      cancel: () => ipcRenderer.invoke('overtone:local-cancel'),
+      remove: (id) => ipcRenderer.invoke('overtone:local-remove', String(id)),
+      artwork: (id) => ipcRenderer.invoke('overtone:local-artwork', String(id)),
+      onProgress: (listener) => ipcRenderer.on('overtone:local-progress', (_event, state) => listener(state)),
+    },
     hotkeys: () => ipcRenderer.invoke('overtone:hotkeys'),
     discordStatus: () => ipcRenderer.invoke('overtone:discord'),
     release: {

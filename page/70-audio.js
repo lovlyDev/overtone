@@ -38,6 +38,7 @@
   function build(context) {
     if (chains.has(context)) return;
     const own = (node) => Object.assign(node, { __otOwn: true });
+    const transitionInput = own(context.createGain());
     const level = own(context.createGain());
     const bands = BANDS.map((frequency, index) => {
       const band = own(context.createBiquadFilter());
@@ -58,9 +59,9 @@
     analyser.smoothingTimeConstant = 0.72;
     const input = context.__otInput;
     disconnect.call(input);
-    [input, level, ...bands, boost, limiter, analyser].reduce((from, to) => (connect.call(from, to), to));
+    [input, transitionInput, level, ...bands, boost, limiter, analyser].reduce((from, to) => (connect.call(from, to), to));
     connect.call(analyser, context.destination);
-    chains.set(context, { level, bands, boost, limiter, analyser, data: new Uint8Array(analyser.frequencyBinCount), wave: new Float32Array(analyser.fftSize) });
+    chains.set(context, { input, transitionInput, level, bands, boost, limiter, analyser, data: new Uint8Array(analyser.frequencyBinCount), wave: new Float32Array(analyser.fftSize) });
     apply();
   }
 

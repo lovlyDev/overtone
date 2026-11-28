@@ -12,6 +12,7 @@
     const url = new URL(input instanceof Request ? input.url : String(input), location.href);
     if (url.origin !== 'https://api.music.yandex.net') return original.call(this, input, options);
     const method = (options?.method || (input instanceof Request ? input.method : 'GET')).toUpperCase();
+    const mediaInfo = /^\/(get-file-info|resources\/v2\/file-info)(\/batch)?$/.test(url.pathname);
     // Вход в аккаунт приложения — только в памяти страницы: им мод создаёт перенесённый плейлист (page/62-transfer.js).
     try {
       const headers = new Headers(options?.headers || (input instanceof Request ? input.headers : undefined));
@@ -23,7 +24,7 @@
     const sync = url.pathname === '/collection/sync';
     // Свои плейлисты: закреплённые и понравившиеся — дополняем ответ сервера.
     const merge = sync || /\/playlist\/lk\.|\/collection\/playlist-with-likes|^\/pins$|^\/users\/\d+\/likes\/playlists$/.test(url.pathname) || Boolean(ot.transferUuids?.has(url.pathname.split('/')[2]) && url.pathname.startsWith('/playlist/'));
-    if (!merge && !/50c10ad0-|70\d{11}|\/users\/70\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !url.pathname.startsWith('/resources/v2/file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
+    if (!merge && !/50c10ad0-|10ca1000-|7[01]\d{11}|\/users\/7[01]\/playlists\/|owner-uid=70|\/likes\/playlists\/70-|^\/pin\/playlist$/.test(url.pathname + url.search) && !['/tracks', '/plays'].includes(url.pathname) && !url.pathname.startsWith('/get-file-info') && !url.pathname.startsWith('/resources/v2/file-info') && !/^\/tracks\/\d+\/lyrics$|^\/overtone\//.test(url.pathname)) {
       return original.call(this, input, options);
     }
     const request = new Request(input, options);
@@ -45,7 +46,7 @@
           const form = await request.clone().formData();
           nativeBody = new FormData();
           for (const [key, value] of form) {
-            if (/track.?ids/i.test(key) && /^70\d{11}(?=:|$)/.test(String(value))) continue;
+            if (/track.?ids/i.test(key) && /^7[01]\d{11}(?=:|$)/.test(String(value))) continue;
             nativeBody.append(key, value);
           }
           headers.delete('content-type');
@@ -65,6 +66,7 @@
       const response = await original.call(this, native);
       if (!response.ok) return response;
       const json = await response.clone().json();
+      if (mediaInfo) ot.mixRemember?.(json, url);
       if (url.pathname === '/tracks' && Array.isArray(json)) {
         ot.loudness ||= new Map();
         for (const card of json) if (typeof card?.r128?.i === 'number') ot.loudness.set(String(card.id), card.r128.i);
@@ -75,10 +77,15 @@
     request.signal.throwIfAborted();
     // Конструктор Request забирает поток тела у исходного Request.
     // После проверки передаём дальше уже созданный объект, иначе родная порция остаётся без тела.
-    if (!reply) return original.call(this, request);
+    if (!reply) {
+      const response = await original.call(this, request);
+      if (mediaInfo && ot.mixRemember && response.ok) response.clone().json().then((json) => ot.mixRemember(json, url)).catch(() => {});
+      return response;
+    }
+    if (mediaInfo) ot.mixRemember?.(reply.body, url);
     for (const info of reply.body?.downloadInfos || reply.body?.fileInfos || [reply.body?.downloadInfo || reply.body?.fileInfo || reply.body]) {
-      if (info?.error && /^70\d{11}$/.test(String(info.trackId))) {
-        ot.emit('sc-unavailable', { id: String(Number(info.trackId) - 7000000000000), message: 'Трек недоступен в SoundCloud', at: Date.now() });
+      if (info?.error && /^7[01]\d{11}$/.test(String(info.trackId))) {
+        ot.emit('sc-unavailable', { id: String(Number(info.trackId) - 7000000000000), message: String(info.trackId).startsWith('71') ? 'Локальный файл перемещён, удалён или диск отключён' : 'Трек недоступен в SoundCloud', at: Date.now() });
       }
     }
     const text = typeof reply.body === 'string';

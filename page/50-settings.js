@@ -15,14 +15,33 @@
   const DELAYS = [3, 5, 7, 10, 15];
   const HEIGHTS = [[480, '480p'], [720, '720p'], [1080, '1080p'], [1440, '1440p'], [2160, '4K']];
   let panel = null;
+  let renderedLastfm = '';
+  let renderedTransitions = '';
+  let previewState = { phase: 'idle' };
+  const transitionMode = () => window.__otTransitionSettings(ot.config).mode;
+  const transitionLayout = () => {
+    const mode = transitionMode();
+    return [mode, mode === 'crossfade' && ot.config.crossfadeProfile === 'custom', mode === 'dj' && ot.config.djPosition !== 'end'].join('|');
+  };
+  const settingValue = (name) => name === 'transitionMode' ? transitionMode()
+    : name === 'crossfadeSeconds' ? Number(ot.config.crossfadeSeconds) || 4 : ot.config[name];
 
-  const row = (title, hint, control) =>
-    el('div', { className: 'ot-row' }, [
-      el('div', { className: 'ot-row-text' }, [el('b', { textContent: title }), el('span', { textContent: hint })]),
-      control,
+  const row = (title, hint, control) => {
+    const label = el('b', { textContent: title });
+    if (control.matches('[data-setting]')) {
+      label.id = `ot-label-${control.dataset.setting}`;
+      if (control.__otOptions) {
+        control.id = `ot-control-${control.dataset.setting}`;
+        control.setAttribute('aria-labelledby', `${label.id} ${control.id}`);
+      } else control.setAttribute('aria-labelledby', label.id);
+    }
+    return el('div', { className: 'ot-row' }, [
+      el('div', { className: 'ot-row-text' }, hint ? [label, el('span', { textContent: hint })] : [label]), control,
     ]);
+  };
   const toggle = (name) => {
     const input = el('input', { type: 'checkbox', className: 'ot-toggle', checked: Boolean(ot.config[name]) });
+    input.dataset.setting = name;
     input.addEventListener('change', () => ot.set({ [name]: input.checked }));
     return input;
   };
@@ -36,8 +55,11 @@
   };
   /** Свой выпадающий список вместо системного select: тот не стилизуется. */
   const select = (name, options) => {
-    const same = (value) => String(value) === String(ot.config[name]);
+    const same = (value) => String(value) === String(settingValue(name));
     const button = el('button', { type: 'button', className: 'ot-dropdown' });
+    button.dataset.setting = name;
+    button.__otOptions = options;
+    button.setAttribute('aria-expanded', 'false');
     button.append((options.find(([value]) => same(value)) || options[0])[1]);
     button.insertAdjacentHTML('beforeend', CHEVRON);
     button.addEventListener('click', (event) => {
@@ -49,6 +71,7 @@
         item.setAttribute('aria-selected', String(same(value)));
         item.addEventListener('click', () => {
           closeMenu();
+          button.focus({ preventScroll: true });
           ot.set({ [name]: value });
         });
         return item;
@@ -59,20 +82,88 @@
       menu.style.left = `${Math.max(8, box.right - menu.offsetWidth)}px`;
       button.setAttribute('aria-expanded', 'true');
       opener = button;
+      if (event.detail === 0) (menu.querySelector('[aria-selected="true"]') || menu.firstElementChild)?.focus({ preventScroll: true });
+      menu.addEventListener('keydown', (key) => {
+        if (key.key !== 'ArrowDown' && key.key !== 'ArrowUp') return;
+        const items = [...menu.children];
+        const index = items.indexOf(document.activeElement);
+        const direction = key.key === 'ArrowDown' ? 1 : -1;
+        items[(index + direction + items.length) % items.length]?.focus();
+        key.preventDefault();
+      });
     });
     return button;
   };
   document.addEventListener('click', (event) => menu && !menu.contains(event.target) && closeMenu());
 
+  function updatePreview() {
+    const button = panel?.querySelector('[data-mix-preview]');
+    if (!button) return;
+    const active = previewState.phase === 'loading' || previewState.phase === 'playing';
+    button.textContent = active ? previewState.phase === 'loading' ? 'Отменить загрузку' : 'Остановить' : 'Прослушать переход';
+    const status = panel.querySelector('[data-mix-status]');
+    status.textContent = previewState.message || (previewState.phase === 'loading' ? 'Подготавливаю оба трека…' : '');
+  }
+  ot.on('mix-preview', (state) => { previewState = state; updatePreview(); });
+
+  function transitions() {
+    const mode = transitionMode();
+    const durations = [1, 2, 3, 4, 5, 6, 8, 10, 12].map((value) => [value, `${value} с`]);
+    const duration = (title, key) => row(title, '', select(key, durations));
+    const labeled = (label, key) => row(label, '', toggle(key));
+    const rows = [row('Переходы', 'Настройки сохраняются отдельно для каждого режима.', select('transitionMode', [
+      ['off', 'Выключены'], ['crossfade', 'Кроссфейд'], ['dj', 'Авто-DJ'], ['bass', 'Смена баса'], ['echo', 'Эхо'], ['gapless', 'Без пауз'],
+    ]))];
+    if (mode === 'off') return rows;
+    if (mode === 'crossfade') {
+      rows.push(duration('Длительность перекрытия', 'crossfadeSeconds'));
+      rows.push(row('Характер перехода', 'Выбери, как треки нарастают и затихают.', select('crossfadeProfile', [
+        ['balanced', 'Сбалансированный'], ['gentle', 'Мягкий вход'], ['quick', 'Короткий'], ['custom', 'Свой'],
+      ])));
+      if (ot.config.crossfadeProfile === 'custom') {
+        rows.push(duration('Нарастание нового трека', 'crossfadeInSeconds'), duration('Затухание текущего трека', 'crossfadeOutSeconds'));
+      }
+    }
+    if (mode === 'dj') {
+      rows.push(row('Момент перехода', 'Диджей анализирует текущий и следующий трек.', select('djPosition', [
+        ['end', 'Под конец'], ['best', 'Лучший момент'], ['random', 'Случайный удачный'],
+      ])));
+      if (ot.config.djPosition !== 'end') rows.push(row('Доигрывать не меньше', '', select('djMinPercent', [30, 50, 60, 75, 85, 95].map((n) => [n, `${n}% трека`]))));
+      rows.push(row('Длина сведения', 'Длина в тактах, когда у треков совместимый ритм.', select('djBars', [[0, 'Авто'], [1, '1 такт'], [2, '2 такта'], [4, '4 такта'], [8, '8 тактов']])));
+      rows.push(row('Запасной кроссфейд', 'Срабатывает, если звук не удалось проанализировать.', select('djFallbackSeconds', durations)));
+      rows.push(labeled('Слегка подстраивать темп', 'djTempo'), labeled('Разрешить смену баса', 'djBass'), labeled('Разрешить эхо', 'djEcho'));
+    }
+    if (mode === 'bass') {
+      rows.push(duration('Длительность перекрытия', 'bassTransitionSeconds'));
+      rows.push(row('Момент передачи баса', '', select('bassTransitionPoint', [[25, 'Раньше'], [50, 'Посередине'], [75, 'Позже']])));
+      rows.push(row('Частота среза', '', select('bassTransitionHz', [80, 100, 120, 150, 180, 220].map((n) => [n, `${n} Гц`]))));
+    }
+    if (mode === 'echo') {
+      rows.push(row('Длительность перекрытия', '', select('echoTransitionSeconds', [0.5, 1, 1.6, 2.5, 4].map((n) => [n, `${n} с`]))));
+      rows.push(row('Задержка повторов', '', select('echoDelayMs', [140, 220, 320, 480, 640].map((n) => [n, `${n} мс`]))));
+      rows.push(row('Число повторов', '', select('echoRepeats', [1, 2, 3, 4, 5].map((n) => [n, String(n)]))));
+      rows.push(row('Громкость эха', '', select('echoWetPercent', [15, 30, 45, 60].map((n) => [n, `${n}%`]))));
+    }
+    if (mode === 'gapless') rows.push(row('Убирать тишину на стыке', 'Сокращает тихие края там, где доступен анализ звука.', toggle('gaplessTrim')));
+    const sample = el('button', { type: 'button', className: 'ot-pill' });
+    sample.dataset.mixPreview = '';
+    sample.addEventListener('click', () => ot.previewTransition?.());
+    const status = el('span', { role: 'status' }); status.dataset.mixStatus = '';
+    rows.push(row('Предпрослушивание', 'Стык текущего и следующего треков в очереди.', el('div', { className: 'ot-stack' }, [sample, status])));
+    return rows;
+  }
+
   function build() {
     const pills = el('div', { className: 'ot-pills' }, THEMES.map(([value, label]) => {
       const pill = el('button', { type: 'button', textContent: label, className: 'ot-pill' });
       pill.dataset.active = String(ot.config.theme === value);
+      pill.dataset.setting = 'theme'; pill.dataset.value = value;
       pill.addEventListener('click', () => ot.set({ theme: value }));
       return pill;
     }));
     // Прокси часто с логином и паролем: на экране не показываем.
     const proxy = el('input', { className: 'ot-input', type: 'password', placeholder: 'socks5://127.0.0.1:1080', value: ot.config.proxy || '' });
+    proxy.dataset.setting = 'proxy';
     proxy.addEventListener('change', () => ot.set({ proxy: proxy.value.trim() }));
     // ---------- итоги ----------
     const hours = (ms) => {
@@ -150,7 +241,7 @@
         button.disabled = true;
         const kept = await window.overtone.cache.clear(kind).catch(() => 0);
         if (kept) ot.toast?.('Играющий сейчас трек оставлен — его удалить нельзя, пока он звучит');
-        render();
+        render(true);
       });
       return button;
     };
@@ -184,7 +275,7 @@
       pill.dataset.active = String(left === value || (value === 0 && !left));
       pill.addEventListener('click', () => {
         ot.sleep?.set(value);
-        render();
+        render(true);
       });
       return pill;
     }));
@@ -266,6 +357,7 @@
       discordState.dataset.ok = String(Boolean(enabled && connected));
     });
     const discordId = el('input', { className: 'ot-input', placeholder: 'ID приложения', value: ot.config.discordClientId || '', spellcheck: false });
+    discordId.dataset.setting = 'discordClientId';
     discordId.addEventListener('change', () => ot.set({ discordClientId: discordId.value.trim() }));
 
     const close = el('button', { type: 'button', className: 'ot-close', textContent: '×', ariaLabel: 'Закрыть' });
@@ -283,6 +375,7 @@
       section('Звук'),
       row('Эквалайзер', 'Готовые настройки звука.', select('eqPreset', presets)),
       row('Громкость', 'Ровная — все треки одинаково громкие. Громко и Очень громко — выше 100%, без хрипа.', select('loudness', loudness)),
+      el('div', { className: 'ot-transitions' }, transitions()),
       section('Видео'),
       row('Видео трека', 'В полноэкранном плеере обложка плавно сменяется клипом. Клик по экрану убирает его.', toggle('video')),
       row('Видео Яндекс Музыки', 'Фоновое видео трека, если оно у него есть.', toggle('videoYm')),
@@ -333,9 +426,18 @@
   function mountPanel(next) {
     const body = page.querySelector('.ot-page-body');
     const scroll = body.scrollTop;
+    const focusedSetting = body.contains(document.activeElement) ? document.activeElement.dataset?.setting : null;
+    // График статистики приходит асинхронно. Сохраняем готовый блок: его повторная вставка
+    // после обнуления высоты и была причиной скачка страницы при любом переключателе.
+    const stats = panel?.querySelector('.ot-stats');
+    if (stats) next.querySelector('.ot-stats')?.replaceWith(stats);
     body.replaceChildren(next);
     body.scrollTop = scroll;
     panel = next;
+    updatePreview();
+    if (focusedSetting) next.querySelector(`[data-setting="${focusedSetting}"]`)?.focus({ preventScroll: true });
+    renderedLastfm = JSON.stringify(ot.config.lastfm || {});
+    renderedTransitions = transitionLayout();
     // Оглавление — из заголовков разделов.
     const index = page.querySelector('.ot-page-index');
     index.replaceChildren(...[...next.querySelectorAll('.ot-section')].map((head) => {
@@ -351,14 +453,40 @@
     body.onscroll = spy;
     spy();
   }
-  function render() {
+  function render(force = false) {
     closeMenu();
     if (!page) return;
+    if (force !== true && renderedLastfm === JSON.stringify(ot.config.lastfm || {}) && panel) {
+      if (renderedTransitions !== transitionLayout()) {
+        const body = page.querySelector('.ot-page-body');
+        const group = panel.querySelector('.ot-transitions');
+        const focusedSetting = group.contains(document.activeElement) ? document.activeElement.dataset.setting : null;
+        const scroll = body.scrollTop;
+        const [, ...controls] = transitions();
+        while (group.lastElementChild !== group.firstElementChild) group.lastElementChild.remove();
+        group.append(...controls);
+        if (focusedSetting && focusedSetting !== 'transitionMode') group.querySelector(`[data-setting="${focusedSetting}"]`)?.focus({ preventScroll: true });
+        body.scrollTop = scroll;
+        renderedTransitions = transitionLayout();
+        updatePreview();
+      }
+      for (const control of panel.querySelectorAll('[data-setting]')) {
+        const name = control.dataset.setting;
+        if (control.type === 'checkbox') control.checked = Boolean(ot.config[name]);
+        else if (control.__otOptions) {
+          const label = (control.__otOptions.find(([value]) => String(value) === String(settingValue(name))) || control.__otOptions[0])?.[1] || '';
+          control.firstChild.textContent = label;
+        } else if (control.dataset.value !== undefined) control.dataset.active = String(String(ot.config[name]) === control.dataset.value);
+        else if (document.activeElement !== control) control.value = ot.config[name] || '';
+      }
+      return;
+    }
     mountPanel(build());
   }
   function toggleOpen() {
     closeMenu();
     if (page) {
+      ot.stopTransitionPreview?.();
       page.remove();
       page = null;
       panel = null;
@@ -387,6 +515,12 @@
   place();
   document.addEventListener('keydown', (event) => {
     if (event.ctrlKey && event.shiftKey && event.code === 'KeyO') toggleOpen();
+    else if (event.key === 'Escape' && menu) {
+      const trigger = opener;
+      closeMenu();
+      trigger?.focus({ preventScroll: true });
+      event.preventDefault();
+    }
     else if (event.key === 'Escape' && panel) toggleOpen();
   });
   // Переход в любой раздел приложения закрывает страницу настроек.
@@ -400,6 +534,7 @@
   // Приложение может перерисовать область содержимого — тогда страница пропадает вместе с ней.
   ot.on('tick', () => {
     if (page && !page.isConnected) {
+      ot.stopTransitionPreview?.();
       page = null;
       panel = null;
       button.dataset.active = 'false';

@@ -15,6 +15,125 @@
     return key ? element[key] : null;
   };
   const unbox = (box) => (box && typeof box === 'object' && 'value' in box ? box.value : box);
+  let crossfadeController = null;
+  let playbackController = null, fadeConfigKey = '';
+  const fadedMetadata = new WeakMap();
+  const mainPlayback = () => playbackController?.playbacks?.get('MAIN');
+  const queueState = () => mainPlayback()?.queueController?.playerQueue?.queueState;
+  const musicPair = (pair) => {
+    const value = unbox(pair), meta = value?.entity?.data?.meta;
+    return meta?.type === 'music' && !meta.mixFade && meta.durationMs > 0 ? value : null;
+  };
+  const pairTrack = (pair) => {
+    const meta = pair?.entity?.data?.meta;
+    return meta ? { id: String(meta.realId || meta.id), durationMs: meta.durationMs, title: meta.title } : null;
+  };
+  function mediaPlayers() {
+    const players = unbox(mainPlayback()?.state?.mediaPlayersStore);
+    return Object.values(players || {}).find((player) => player?.currentAudioElement && player?.startTimeTracking);
+  }
+  let appliedTransition = null;
+  const pairFades = new WeakMap();
+  function setPairFade(pair, fields) {
+    if (!pair?.getCrossParams) return;
+    let entry = pairFades.get(pair);
+    if (!entry) {
+      const original = pair.getCrossParams;
+      entry = {};
+      pairFades.set(pair, entry);
+      pair.getCrossParams = function () {
+        const fade = original.call(this);
+        return fade && entry.fields ? { ...fade, ...entry.fields } : fade;
+      };
+    }
+    entry.fields = fields;
+  }
+  function rearm(player, from, to, out) {
+    const element = unbox(player?.currentAudioElement);
+    if (player?.currentContextEntityPair === from && element && !element.paused && !element.seeking && element.currentTime < out - 1.2) {
+      player.startTimeTracking(from, to);
+    }
+  }
+  ot.mixQueue = () => {
+    const queue = queueState();
+    const from = musicPair(queue?.currentEntity), to = musicPair(queue?.nextEntity);
+    const player = mediaPlayers();
+    return {
+      from, to, a: pairTrack(from), b: pairTrack(to),
+      element: unbox(player?.currentAudioElement),
+      outgoing: unbox(player?.crossOutMediaPlayer?.currentAudioElement),
+      incoming: unbox(player?.crossInMediaPlayer?.currentAudioElement),
+      busy: Boolean(unbox(player?.isCrossing) || unbox(player?.isReadyForAudioEffect)),
+      volume: unbox(findStore()?.sonataState?.volume),
+    };
+  };
+  ot.mixTransport = (action) => mainPlayback()?.[action]?.();
+  ot.applyMixPlan = (snapshot, plan) => {
+    const { from, to } = snapshot;
+    const queue = queueState(), player = mediaPlayers(), previous = appliedTransition;
+    if (musicPair(queue?.currentEntity) !== from || musicPair(queue?.nextEntity) !== to || ot.mixQueue().busy) return false;
+    if (plan && (!from || !to || ot.position() >= plan.out - 1.2)) return false;
+    if (previous) {
+      setPairFade(previous.from, null);
+      setPairFade(previous.to, null);
+      appliedTransition = null;
+    }
+    if (plan) {
+      setPairFade(from, { outStart: plan.out, outStop: plan.out + plan.length });
+      setPairFade(to, { inStart: plan.input, inStop: plan.input + plan.length });
+      appliedTransition = { from, to };
+    }
+    if (from && to) rearm(player, from, to, plan?.out ?? from.getCrossParams?.()?.outStart ?? Infinity);
+    return true;
+  };
+  function syncQueueFades() {
+    const calculate = window.__otFadeParameters;
+    if (!playbackController || !calculate) return;
+    const config = ot.config || {};
+    const settings = window.__otTransitionSettings?.(config);
+    const key = [settings?.mode, settings?.length, settings?.position, settings?.minimum, config.crossfadeProfile, config.crossfadeInSeconds, config.crossfadeOutSeconds].join('|');
+    const queue = queueState();
+    if (!queue) return;
+    const patch = (pair) => {
+      const meta = unbox(pair)?.entity?.data?.meta;
+      if (!meta || meta.type !== 'music' || meta.mixFade || fadedMetadata.get(meta) === key) return;
+      const fade = calculate(meta.durationMs, config.crossfadeSeconds, config);
+      if (fade) meta.fade = fade;
+      fadedMetadata.set(meta, key);
+    };
+    // Полный проход только при смене настройки; на тике — три ближайших трека.
+    if (key !== fadeConfigKey) {
+      const list = unbox(queue.entityList);
+      if (Array.isArray(list)) list.forEach(patch);
+      fadeConfigKey = key;
+      const from = musicPair(queue.currentEntity), to = musicPair(queue.nextEntity);
+      if (from && to && !appliedTransition) rearm(mediaPlayers(), from, to, from.getCrossParams?.()?.outStart ?? Infinity);
+    }
+    patch(queue.currentEntity); patch(queue.nextEntity); patch(queue.prevEntity);
+  }
+  function syncCrossfade() {
+    if (!crossfadeController || !playbackController) {
+      for (const selector of ANCHORS) {
+        let fiber = document.querySelector(selector);
+        fiber = fiber && fiberOf(fiber);
+        for (let depth = 0; fiber && depth < 800; depth++, fiber = fiber.return) {
+          const value = fiber.memoizedProps?.value;
+          if (value?.playbackController?.playbacks) playbackController = value.playbackController;
+          if (value?.isCrossfadeEnabled && typeof value.isCrossfadeEnabled === 'object' && 'value' in value.isCrossfadeEnabled) crossfadeController = value;
+        }
+        if (crossfadeController && playbackController) break;
+      }
+    }
+    const enabled = Boolean(window.__otTransitionSettings?.(ot.config)?.length);
+    const player = mediaPlayers();
+    if (unbox(player?.isCrossing) || unbox(player?.isReadyForAudioEffect)) return;
+    if (crossfadeController && crossfadeController.isCrossfadeEnabled.value !== enabled) crossfadeController.isCrossfadeEnabled.value = enabled;
+    const sonata = findStore()?.sonataState;
+    if (sonata?.setCrossFadeMode && sonata.isCrossFadeEnabled !== enabled) sonata.setCrossFadeMode(enabled);
+    syncQueueFades();
+  }
+  ot.crossfadeState = () => ({ available: Boolean(crossfadeController), enabled: Boolean(crossfadeController?.isCrossfadeEnabled.value), seconds: window.__otTransitionSettings?.(ot.config)?.length || 0 });
+  ot.on('config', syncCrossfade);
 
   /** Корневое хранилище приложения лежит в React-контексте выше плеера. */
   function findStore() {
@@ -41,7 +160,7 @@
       artist: (meta.artists || []).map((artist) => artist.name).join(', '),
       durationMs: meta.durationMs || 0,
       loudness: typeof meta.r128?.i === 'number' ? meta.r128.i : ot.loudness?.get(String(meta.realId || meta.id)) ?? null,
-      cover: meta.coverUri ? `https://${meta.coverUri.replace('%%', '400x400')}` : '',
+      cover: meta.coverUri ? (/^(data:|https?:)/.test(meta.coverUri) ? meta.coverUri : `https://${meta.coverUri.replace('%%', '400x400')}`) : '',
     };
   }
 
@@ -124,14 +243,15 @@
     }, 2000);
   }
   ot.on('tick', () => {
+    syncCrossfade();
     const track = ot.track();
     const id = String(track?.id || '');
     const status = String(unbox(findStore()?.sonataState?.status) || '');
     if (id !== waitingKey) { waitingKey = id; waitingSince = Date.now(); }
-    if (/^70\d{11}$/.test(id) && /buffer|loading|error/i.test(status)) {
+    if (/^7[01]\d{11}$/.test(id) && /buffer|loading|error/i.test(status)) {
       const failure = failures.get(String(Number(id) - 7000000000000));
       if (failure && Date.now() - failure.at < 60_000 && waitingSince !== Infinity) recover(id, failure.message);
-      else if (Date.now() - waitingSince > 90_000) recover(id, 'SoundCloud не ответил вовремя');
+      else if (Date.now() - waitingSince > 90_000) recover(id, id.startsWith('71') ? 'Не удалось открыть локальный файл' : 'SoundCloud не ответил вовремя');
     } else if (/playing/i.test(status) && ot.position() > 1) {
       skipped.clear();
       waitingSince = Date.now();

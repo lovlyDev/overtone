@@ -10,10 +10,11 @@
 // Трек SoundCloud живёт под номером BASE + его номер на SoundCloud: у Яндекса таких номеров нет.
 const fs = require('fs');
 const path = require('path');
+const fade = require('./fade');
 
 const API = 'https://api.music.yandex.net/';
 const BASE = 7_000_000_000_000;
-const SYNTHETIC = /\b70\d{11}\b/;
+const SYNTHETIC = /\b7[01]\d{11}\b/;
 const OWNER = { uid: 70, login: 'soundcloud', name: 'SoundCloud', sex: 'unknown', verified: true };
 // Приложение открывает только адреса плейлистов в виде UUID, поэтому страница поиска выглядит так.
 const UUID_HEAD = '50c10ad0-0000-4000-8000-';
@@ -22,10 +23,15 @@ const uuidOf = (key) => `${UUID_HEAD}${key}`;
 
 const toSynthetic = (id) => String(BASE + Number(id));
 const toSoundcloud = (id) => String(Number(id) - BASE);
-const isSynthetic = (id) => /^70\d{11}$/.test(String(id));
+const isLocal = (id) => /^71\d{11}$/.test(String(id));
+const isSynthetic = (id) => /^7[01]\d{11}$/.test(String(id));
 const iso = (ms) => new Date(ms).toISOString().replace(/\.\d+Z$/, '+00:00');
 
-module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave, lyrics, video, covers }) {
+module.exports = function createApi({ dataDir, soundcloud, media, getConfig, replace, wave, lyrics, video, covers, local }) {
+  const likedItems = () => [
+    ...soundcloud.liked().filter((item) => soundcloud.track(item.id)).map((item) => ({ ...item, id: toSynthetic(item.id) })),
+    ...(local?.liked() || []).filter((item) => local.track(item.id)),
+  ];
   const likedYandex = new Set();
   const log = (...parts) => {
     if (!getConfig().debug) return;
@@ -33,24 +39,25 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
   };
 
   /** Обложка в формате приложения: адрес без схемы, где %% заменяется размером. У SoundCloud размер игнорируется. */
-  const coverUri = (track) => (track.cover ? `${track.cover.replace(/^https?:\/\//, '')}?%%` : covers?.get(track.id) || '');
+  const coverUri = (track) => track.local ? (track.artwork ? `artwork.overtone.invalid/${track.id}/${Math.round(track.mtimeMs)}/%%` : '') : (track.cover ? `${track.cover.replace(/^https?:\/\//, '')}?%%` : covers?.get(track.id) || '');
 
   function richTrack(track) {
-    const id = toSynthetic(track.id);
-    const text = lyrics?.info(track.id);
+    const id = track.local ? track.id : toSynthetic(track.id);
+    const text = track.local ? null : lyrics?.info(track.id);
     const uri = coverUri(track);
     const artist = {
-      id: Number(id), name: track.artist || 'SoundCloud', various: false, composer: false, available: true,
+      id: Number(id), name: track.artist || (track.local ? 'Локальная музыка' : 'SoundCloud'), various: false, composer: false, available: true,
       cover: { type: 'from-album-cover', uri, prefix: '' }, genres: [], disclaimers: [],
     };
     return {
       id, realId: id, title: track.title, major: { id: 0, name: '-' },
+      fade: fade.parameters(track.durationMs, getConfig().crossfadeSeconds, getConfig()),
       r128: { i: -14, tp: 0 }, derivedColors: { average: '#202020', waveText: '#ffffff', miniPlayer: '#303030', accent: '#ff7700' },
-      available: true, availableForPremiumUsers: true, availableFullWithoutPermission: false, availableForOptions: ['bookmate'],
+      available: !track.missing, availableForPremiumUsers: true, availableFullWithoutPermission: Boolean(track.local), availableForOptions: ['bookmate'],
       disclaimers: [], storageDir: '', durationMs: track.durationMs, fileSize: 0, previewDurationMs: 30000,
       artists: [artist],
       albums: [{
-        id: Number(id), title: track.title, metaType: 'music', type: 'single', coverUri: uri, ogImage: uri, genre: '',
+        id: Number(id), title: track.album || track.title, metaType: 'music', type: 'single', coverUri: uri, ogImage: uri, genre: '',
         trackCount: 1, likesCount: 0, recent: false, veryImportant: false, artists: [artist], labels: [],
         available: true, availableForPremiumUsers: true, availableForOptions: ['bookmate'], availableForMobile: true,
         availablePartially: false, bests: [], disclaimers: [], trackPosition: { volume: 1, index: 1 },
@@ -60,7 +67,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     };
   }
   const richById = (id) => {
-    const track = soundcloud.track(toSoundcloud(id));
+    const track = isLocal(id) ? local?.track(id) : soundcloud.track(toSoundcloud(id));
     return track ? richTrack(track) : null;
   };
 
@@ -121,13 +128,13 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
   }
 
   function mergeLiked(playlist) {
-    const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));
+    const mine = likedItems();
     if (!mine.length || !Array.isArray(playlist.tracks)) return playlist;
-    const added = mine.map((item) => ({ timestamp: iso(item.at), id: Number(toSynthetic(item.id)), albumId: Number(toSynthetic(item.id)) }));
+    const added = mine.map((item) => ({ timestamp: iso(item.at), id: Number(item.id), albumId: Number(item.id) }));
     const tracks = [...playlist.tracks, ...added]
       .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp))
       .map((item, index) => ({ ...item, originalIndex: index, originalShuffleIndex: index }));
-    const extra = mine.reduce((sum, item) => sum + soundcloud.track(item.id).durationMs, 0);
+    const extra = mine.reduce((sum, item) => sum + (richById(item.id)?.durationMs || 0), 0);
     return { ...playlist, tracks, trackCount: (playlist.trackCount || 0) + mine.length, durationMs: (playlist.durationMs || 0) + extra };
   }
 
@@ -167,6 +174,13 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
     const infos = await Promise.all(
       ids.map(async (raw) => {
         const id = raw.split(':')[0];
+        if (isLocal(id)) {
+          const track = local?.track(id);
+          try {
+            await local.file(id);
+            return { trackId: id, realId: id, quality: track.codec === 'flac' ? 'lossless' : 'nq', codec: track.codec, bitrate: track.bitrate || 0, transport: 'raw', gain: false, urls: [media.localUrl(id)], url: media.localUrl(id) };
+          } catch { return { trackId: id, error: 'not-found' }; }
+        }
         const source = isSynthetic(id) ? toSoundcloud(id) : replace?.sourceFor(id);
         try {
           if (!source || !soundcloud.track(source)) return { trackId: id, error: 'not-found' };
@@ -209,6 +223,16 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       const { method } = params.request;
       if (method === 'OPTIONS') return false;
       const route = url.pathname;
+      if (local && (/^\/playlist\/10ca1000-0000-4000-8000-[0-9a-f]{12}$/.test(route) || route === '/users/71/playlists/1')) {
+        const tracks = local.tracks();
+        const at = tracks.reduce((value, track) => Math.max(value, track.addedAt), 0) || Date.now();
+        return fulfill(params, { ...searchPlaylist({key:'000000000001',ids:[],at,query:''}),
+          owner: { uid:71,login:'local',name:'Локальная музыка',sex:'unknown',verified:false }, uid:71,kind:1,playlistUuid:local.UUID,
+          title:'Локальная музыка',description:'Ваши MP3 и FLAC на этом компьютере',trackCount:tracks.length,
+          durationMs:tracks.reduce((sum,track)=>sum+track.durationMs,0),
+          tracks:tracks.map((track,index)=>({id:Number(track.id),albumId:Number(track.id),originalIndex:index,originalShuffleIndex:index,timestamp:iso(track.addedAt)})),
+        });
+      }
       if (route.startsWith('/get-file-info') && SYNTHETIC.test(url.search)) {
         log('file-info', url.search.slice(0, 80));
         return fulfill(params, await fileInfo(url));
@@ -283,6 +307,11 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       if (like) {
         const id = (like[1] === 'add' ? url.searchParams.get('track-id') || '' : like[1]).split(/[:/]/)[0];
         if (!isSynthetic(id)) return false;
+        if (isLocal(id)) {
+          if (!local?.track(id)) return fulfill(params, {name:'not-found'},404);
+          if (like[1] === 'add') local.like(id); else local.unlike(id);
+          return fulfill(params, { revision: Math.floor(Date.now()/1000) });
+        }
         if (like[1] === 'add') soundcloud.like(toSoundcloud(id));
         else soundcloud.unlike(toSoundcloud(id));
         wave?.learnLike(toSoundcloud(id), like[1] === 'add');
@@ -293,8 +322,8 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         const ids = idsIn(await postOf(params));
         // Целиком наши треки отдаём сразу; смешанные списки дополняем на этапе ответа.
         if (ids.length && ids.every(isSynthetic)) {
-          await soundcloud.ensure?.(ids.map(toSoundcloud));
-          const sources = ids.map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
+          await soundcloud.ensure?.(ids.filter((id) => !isLocal(id)).map(toSoundcloud));
+          const sources = ids.filter((id) => !isLocal(id)).map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
           await Promise.all([lyrics?.ensure(sources), covers?.ensure(sources)]);
           const cards = ids.map(richById).filter(Boolean);
           video?.probe(cards);
@@ -330,9 +359,9 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
       }
       if (url.pathname === '/collection/sync' && data.values?.likedTracks?.values) {
         const tracks = data.values.likedTracks;
-        const mine = soundcloud.liked().filter((item) => soundcloud.track(item.id));
+        const mine = likedItems();
         const local = mine.reduce((hash, item) => (hash * 31 + item.at) % 999983, 0);
-        const liked = [...tracks.values.liked.filter((item) => !isSynthetic(item.trackId)), ...mine.map((item) => ({ trackId: toSynthetic(item.id), timestamp: iso(item.at) }))];
+        const liked = [...tracks.values.liked.filter((item) => !isSynthetic(item.trackId)), ...mine.map((item) => ({ trackId: item.id, timestamp: iso(item.at) }))];
         const revision = tracks.info.revision + (mine.length ? (local + 1) / 1000000 : 0);
         return { body: { ...data, values: { ...data.values, likedTracks: { ...tracks, info: { ...tracks.info, revision }, values: { ...tracks.values, liked } } } }, status: 200 };
       }
@@ -358,19 +387,19 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { body: { ...data, result: [...mine, ...data.result], ...(pager ? { pager } : {}) }, status: 200 };
       }
       if (url.pathname.includes('/collection/playlist-with-likes') && data.summary) {
-        return { body: { ...data, summary: { ...data.summary, count: data.summary.count + soundcloud.liked().length } }, status: 200 };
+        return { body: { ...data, summary: { ...data.summary, count: data.summary.count + likedItems().length } }, status: 200 };
       }
       if (url.pathname === '/tracks' && Array.isArray(data) && !idsIn(request.body).some(isSynthetic)) {
-        let cards = replace?.patch(data) || data;
+        let cards = fade.cards(replace?.patch(data) || data, getConfig().crossfadeSeconds, getConfig());
         const withLyrics = await withOwnLyrics(cards);
         return withLyrics || cards !== data ? { body: withLyrics || cards, status: 200 } : null;
       }
       if (url.pathname === '/tracks' && Array.isArray(data)) {
-        const byId = new Map((replace?.patch(data) || data).map((track) => [String(track.id), track]));
+        const byId = new Map(fade.cards(replace?.patch(data) || data, getConfig().crossfadeSeconds, getConfig()).map((track) => [String(track.id), track]));
         const ids = idsIn(request.body);
-        await soundcloud.ensure?.(ids.filter(isSynthetic).map(toSoundcloud));
+        await soundcloud.ensure?.(ids.filter((id) => isSynthetic(id) && !isLocal(id)).map(toSoundcloud));
         // Смешанный список («Мне нравится»): треку SoundCloud без обложки тоже нужна обложка и текст.
-        const sources = ids.filter(isSynthetic).map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
+        const sources = ids.filter((id) => isSynthetic(id) && !isLocal(id)).map((id) => soundcloud.track(toSoundcloud(id))).filter(Boolean);
         await Promise.all([lyrics?.ensure(sources), covers?.ensure(sources)]);
         return { body: ids.map((id) => isSynthetic(id) ? richById(id) : byId.get(id)).filter(Boolean), status: 200 };
       }
@@ -388,7 +417,7 @@ module.exports = function createApi({ dataDir, soundcloud, media, getConfig, rep
         return { nativeIds: ids.filter((id) => !isSynthetic(id)) };
       }
       // Только родные: пусть идут на сервер, а ответ посмотрим на недоступные треки.
-      if (ids.length && !ids.some(isSynthetic) && (getConfig().scReplace || getConfig().ymLyrics !== false)) return { forward: true };
+      if (ids.length && !ids.some(isSynthetic) && (getConfig().scReplace || getConfig().ymLyrics !== false || fade.settings(getConfig()).length)) return { forward: true };
     }
     const params = { request: { method: request.method || 'GET', postData: request.body || '' } };
     const reply = (_params, body, status = 200) => ({ body, status });

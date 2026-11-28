@@ -76,7 +76,7 @@ const HOTKEYS = {
   volumeDown: 'CommandOrControl+Alt+Down',
 };
 
-module.exports = function createSystem({ getConfig, windows, broadcast }) {
+module.exports = function createSystem({ getConfig, windows, broadcast, localCoverUrl }) {
   let playing = false;
   let failed = [];
 
@@ -139,7 +139,13 @@ module.exports = function createSystem({ getConfig, windows, broadcast }) {
   }
 
   app.whenReady().then(() => {
-    session.defaultSession.webRequest.onBeforeRequest({ urls: BLOCKED }, (_details, callback) => callback({ cancel: Boolean(getConfig().blockAds) }));
+    session.defaultSession.webRequest.onBeforeRequest({ urls: [...BLOCKED, 'https://artwork.overtone.invalid/*'] }, (details, callback) => {
+      if (details.url.startsWith('https://artwork.overtone.invalid/')) {
+        const id = /^\/(71\d{11})\//.exec(new URL(details.url).pathname)?.[1];
+        return callback(id && localCoverUrl ? { redirectURL: localCoverUrl(id) } : { cancel: true });
+      }
+      callback({ cancel: Boolean(getConfig().blockAds) });
+    });
     registerHotkeys();
     powerMonitor.on('lock-screen', () => {
       if (getConfig().pauseOnLock && playing) playerAction('PAUSE');
